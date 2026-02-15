@@ -1,0 +1,66 @@
+# cc_image
+
+Unified image toolkit: generate, analyze, OCR, resize, and convert.
+
+Part of the [CC Tools](../../README.md) suite.
+
+## Features
+
+- **Resize:** High-quality image resizing with aspect ratio preservation
+- **Convert:** Convert between formats (PNG, JPEG, WebP, etc.)
+- **Describe:** AI-powered image analysis
+- **OCR:** Extract text from images
+- **Generate:** Create images with DALL-E
+
+## Installation
+
+Download from [GitHub Releases](https://github.com/CenterConsulting/cc-tools/releases) or:
+
+```bash
+pip install -e .
+```
+
+## Requirements
+
+- **OpenAI API Key:** Required for describe, ocr, and generate commands
+  Set `OPENAI_API_KEY` environment variable
+
+## Usage
+
+```bash
+# Get image info
+cc_image info photo.jpg
+
+# Resize image
+cc_image resize photo.jpg -o thumb.jpg --width 800
+cc_image resize photo.jpg -o small.jpg --height 600
+
+# Convert format
+cc_image convert photo.png -o photo.webp
+cc_image convert photo.png -o photo.jpg --quality 85
+
+# AI describe image
+cc_image describe photo.jpg
+
+# OCR - extract text
+cc_image ocr screenshot.png
+
+# Generate with DALL-E
+cc_image generate "A sunset over mountains" -o sunset.png
+cc_image generate "A cat wearing a hat" -o cat.png --size 1024x1792 --quality hd
+```
+
+## Commands
+
+| Command | Description | Requires API |
+|---------|-------------|--------------|
+| `info` | Show image metadata | No |
+| `resize` | Resize image | No |
+| `convert` | Convert format | No |
+| `describe` | AI image analysis | Yes |
+| `ocr` | Extract text | Yes |
+| `generate` | Create with DALL-E | Yes |
+
+## License
+
+MIT License - see [LICENSE](../../LICENSE)

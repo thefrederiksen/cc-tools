@@ -1,0 +1,12 @@
+{
+  "name": "CC Tools Marketplace",
+  "owner": "CenterConsulting",
+  "description": "Official marketplace for CC Tools - CLI tools for agentic coding workflows",
+  "plugins": [
+    {
+      "name": "cc-tools",
+      "source": "github:CenterConsulting/cc-tools",
+      "description": "Markdown to PDF/Word, video transcription, image processing"
+    }
+  ]
+}

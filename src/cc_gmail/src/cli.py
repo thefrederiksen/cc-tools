@@ -154,8 +154,9 @@ def get_client(account: Optional[str] = None) -> GmailClient:
         raise typer.Exit(1)
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False,
         "--version",
@@ -173,6 +174,9 @@ def main(
 ):
     """Gmail CLI: read, send, search, and manage emails."""
     state.account = account
+    # Show help if no command provided
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
 
 
 # =============================================================================

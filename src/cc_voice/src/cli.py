@@ -1,5 +1,6 @@
 """CLI for cc_voice."""
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,9 @@ try:
 except ImportError:
     from src import __version__
     from src.tts import tts_to_file, Voice, Model
+
+# Configure logging for library modules
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 app = typer.Typer(
     name="cc_voice",

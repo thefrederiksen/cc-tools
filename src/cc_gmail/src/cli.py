@@ -1,5 +1,6 @@
 """CLI for cc_gmail - Gmail from the command line with multi-account support."""
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +47,8 @@ except ImportError:
     from src.gmail_api import GmailClient
     from src.utils import format_timestamp, truncate, format_message_summary
 
+# Configure logging for library modules
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 app = typer.Typer(
     name="cc_gmail",
@@ -59,7 +62,20 @@ console = Console()
 
 
 def handle_api_error(error: Exception, account: str) -> None:
-    """Parse API errors and provide helpful guidance."""
+    """
+    Parse Gmail API errors and provide user-friendly guidance.
+
+    Handles common OAuth and API errors with specific instructions:
+    - Gmail API not enabled
+    - OAuth redirect mismatch (wrong client type)
+    - App not verified / test user not added
+    - Token expired or revoked
+    - Invalid credentials file
+
+    Args:
+        error: The exception that was raised
+        account: Account name for context in error messages
+    """
     error_str = str(error)
 
     # Gmail API not enabled
@@ -120,7 +136,8 @@ class State:
 state = State()
 
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
+    """Print version and exit if --version flag is set."""
     if value:
         console.print(f"cc_gmail version {__version__}")
         raise typer.Exit()
@@ -417,28 +434,22 @@ def list_emails(
 
         # Show which account
         acct = resolve_account(state.account)
-        table = Table(title=f"Messages in {label} ({acct})")
-        table.add_column("ID", style="dim", width=16)
-        table.add_column("From", width=30)
-        table.add_column("Subject", width=40)
-        table.add_column("Date", width=20)
+        console.print(f"\n[cyan]Messages in {label} ({acct})[/cyan]\n")
 
         for msg_summary in messages:
             msg = client.get_message_details(msg_summary["id"])
             summary = format_message_summary(msg)
 
             # Highlight unread
-            style = "bold" if "UNREAD" in msg.get("labels", []) else ""
+            is_unread = "UNREAD" in msg.get("labels", [])
+            style = "bold" if is_unread else ""
+            marker = "[*]" if is_unread else "[ ]"
 
-            table.add_row(
-                summary["id"][:16],
-                truncate(summary["from"], 30),
-                truncate(summary["subject"], 40),
-                summary["date"][:20] if summary["date"] else "",
-                style=style,
-            )
-
-        console.print(table)
+            console.print(f"{marker} [dim]{summary['id']}[/dim]", style=style)
+            console.print(f"    From: {truncate(summary['from'], 50)}", style=style)
+            console.print(f"    Subject: {truncate(summary['subject'], 60)}", style=style)
+            console.print(f"    Date: {summary['date'][:25] if summary['date'] else ''}", style=style)
+            console.print()
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -564,6 +575,47 @@ def draft(
 
 
 @app.command()
+def reply(
+    message_id: str = typer.Argument(..., help="Message ID to reply to"),
+    body: str = typer.Option(None, "-b", "--body", help="Reply body"),
+    body_file: Path = typer.Option(None, "-f", "--file", help="Read body from file"),
+    reply_all: bool = typer.Option(False, "--all", help="Reply to all recipients"),
+):
+    """Create a draft reply to an existing email."""
+    client = get_client()
+
+    # Get body content
+    if body_file:
+        if not body_file.exists():
+            console.print(f"[red]Error:[/red] File not found: {body_file}")
+            raise typer.Exit(1)
+        body = body_file.read_text()
+    elif not body:
+        console.print("[red]Error:[/red] Provide --body or --file")
+        raise typer.Exit(1)
+
+    try:
+        # Get original message info for display
+        original = client.get_message_details(message_id)
+        original_from = original.get("headers", {}).get("from", "unknown")
+        original_subject = original.get("headers", {}).get("subject", "")
+
+        result = client.create_reply_draft(
+            message_id=message_id,
+            body=body,
+            reply_all=reply_all,
+        )
+        console.print(f"[green]Reply draft created.[/green]")
+        console.print(f"  To: {original_from}")
+        console.print(f"  Subject: Re: {original_subject}" if not original_subject.lower().startswith("re:") else f"  Subject: {original_subject}")
+        console.print(f"  Draft ID: {result.get('id')}")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def search(
     query: str = typer.Argument(..., help="Gmail search query"),
     count: int = typer.Option(10, "-n", "--count", help="Number of results"),
@@ -579,25 +631,19 @@ def search(
             return
 
         acct = resolve_account(state.account)
-        table = Table(title=f"Search: {query} ({acct})")
-        table.add_column("ID", style="dim", width=16)
-        table.add_column("From", width=30)
-        table.add_column("Subject", width=40)
-        table.add_column("Date", width=20)
+        console.print(f"\n[cyan]Search: {query} ({acct})[/cyan]\n")
 
         for msg_summary in messages:
             msg = client.get_message_details(msg_summary["id"])
             summary = format_message_summary(msg)
 
-            table.add_row(
-                summary["id"][:16],
-                truncate(summary["from"], 30),
-                truncate(summary["subject"], 40),
-                summary["date"][:20] if summary["date"] else "",
-            )
+            console.print(f"[ ] [dim]{summary['id']}[/dim]")
+            console.print(f"    From: {truncate(summary['from'], 50)}")
+            console.print(f"    Subject: {truncate(summary['subject'], 60)}")
+            console.print(f"    Date: {summary['date'][:25] if summary['date'] else ''}")
+            console.print()
 
-        console.print(table)
-        console.print(f"\n[dim]Found {len(messages)} message(s)[/dim]")
+        console.print(f"[dim]Found {len(messages)} message(s)[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -679,6 +725,22 @@ def delete(
 
 
 @app.command()
+def archive(
+    message_id: str = typer.Argument(..., help="Message ID to archive"),
+):
+    """Archive an email (remove from inbox, keep in All Mail)."""
+    client = get_client()
+
+    try:
+        client.archive_message(message_id)
+        console.print(f"[green]Message archived.[/green]")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def profile():
     """Show authenticated user profile."""
     client = get_client()
@@ -697,6 +759,60 @@ def profile():
         table.add_row("History ID", info.get("historyId", "Unknown"))
 
         console.print(table)
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command("label-create")
+def label_create(
+    name: str = typer.Argument(..., help="Label name to create"),
+):
+    """Create a new label/folder."""
+    client = get_client()
+
+    try:
+        # Check if exists first
+        existing = client.get_label_by_name(name)
+        if existing:
+            console.print(f"[yellow]Label '{name}' already exists.[/yellow]")
+            console.print(f"Label ID: {existing.get('id')}")
+            return
+
+        label = client.create_label(name)
+        console.print(f"[green]Label created:[/green] {label.get('name')}")
+        console.print(f"Label ID: {label.get('id')}")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def move(
+    message_id: str = typer.Argument(..., help="Message ID to move"),
+    label: str = typer.Option(..., "-l", "--label", help="Target label name"),
+    keep_inbox: bool = typer.Option(False, "--keep-inbox", help="Keep in inbox (just add label)"),
+):
+    """Move an email to a label (removes from inbox by default)."""
+    client = get_client()
+
+    try:
+        # Get or create the label
+        target_label = client.get_or_create_label(label)
+        label_id = target_label.get("id")
+
+        # Modify labels
+        add_labels = [label_id]
+        remove_labels = [] if keep_inbox else ["INBOX"]
+
+        client.modify_labels(message_id, add_labels=add_labels, remove_labels=remove_labels)
+
+        if keep_inbox:
+            console.print(f"[green]Label '{label}' added to message.[/green]")
+        else:
+            console.print(f"[green]Message moved to '{label}'.[/green]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")

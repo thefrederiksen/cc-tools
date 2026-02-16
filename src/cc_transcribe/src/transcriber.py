@@ -1,14 +1,20 @@
 """Video transcription with timestamps."""
 
+from __future__ import annotations
+
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from openai import OpenAI
 
 from .ffmpeg import extract_audio, get_video_duration
 from .screenshots import extract_screenshots, ScreenshotInfo
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,7 +26,7 @@ class TranscribeResult:
     duration: float
     word_count: int
     screenshots: list[ScreenshotInfo] = field(default_factory=list)
-    screenshots_dir: Path | None = None
+    screenshots_dir: Optional[Path] = None
 
 
 def get_api_key() -> str:
@@ -34,7 +40,7 @@ def get_api_key() -> str:
     return key
 
 
-def whisper_transcribe(audio_path: Path, language: str | None = None) -> dict:
+def whisper_transcribe(audio_path: Path, language: Optional[str] = None) -> dict:
     """Transcribe audio with timestamps using OpenAI Whisper."""
     client = OpenAI(api_key=get_api_key())
 
@@ -86,7 +92,7 @@ def transcribe_video(
     extract_screenshots_flag: bool = True,
     screenshot_threshold: float = 0.92,
     screenshot_interval: float = 1.0,
-    language: str | None = None,
+    language: Optional[str] = None,
 ) -> TranscribeResult:
     """
     Transcribe a video file with timestamps and optional screenshots.
@@ -111,17 +117,17 @@ def transcribe_video(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     duration = get_video_duration(video_path)
-    print(f"[INFO] Processing: {video_path.name}")
-    print(f"[INFO] Duration: {int(duration//60)}m {int(duration%60)}s")
+    logger.info(f"Processing: {video_path.name}")
+    logger.info(f"Duration: {int(duration//60)}m {int(duration%60)}s")
 
     # Extract audio
-    print("[INFO] Extracting audio...")
+    logger.info("Extracting audio...")
     audio_path = output_dir / f"{video_path.stem}.mp3"
     extract_audio(video_path, audio_path)
-    print(f"[OK] Audio: {audio_path.stat().st_size / 1024 / 1024:.1f} MB")
+    logger.info(f"Audio extracted: {audio_path.stat().st_size / 1024 / 1024:.1f} MB")
 
     # Transcribe
-    print("[INFO] Transcribing (this may take a while)...")
+    logger.info("Transcribing (this may take a while)...")
     result = whisper_transcribe(audio_path, language)
     segments = result.get("segments", [])
     transcript = segments_to_transcript(segments)
@@ -139,14 +145,14 @@ def transcribe_video(
     }, indent=2, ensure_ascii=False), encoding="utf-8")
 
     word_count = len(transcript.split())
-    print(f"[OK] Transcript: {word_count} words")
+    logger.info(f"Transcript complete: {word_count} words")
 
     # Screenshots
     screenshots = []
     screenshots_dir = None
 
     if extract_screenshots_flag:
-        print("[INFO] Extracting screenshots...")
+        logger.info("Extracting screenshots...")
         screenshots_dir = output_dir / "screenshots"
         _, screenshots = extract_screenshots(
             video_path,
@@ -158,7 +164,7 @@ def transcribe_video(
     # Cleanup audio
     audio_path.unlink(missing_ok=True)
 
-    print(f"[OK] Complete! Output: {output_dir}")
+    logger.info(f"Complete! Output: {output_dir}")
 
     return TranscribeResult(
         transcript=transcript,

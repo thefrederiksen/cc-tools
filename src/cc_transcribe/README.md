@@ -13,7 +13,7 @@ Part of the [CC Tools](../../README.md) suite.
 
 ## Installation
 
-Download from [GitHub Releases](https://github.com/CenterConsulting/cc-tools/releases) or install from source:
+Download from [GitHub Releases](https://github.com/CenterConsulting/cc_tools/releases) or install from source:
 
 ```bash
 pip install -e .

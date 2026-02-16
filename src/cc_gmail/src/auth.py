@@ -1,12 +1,16 @@
 """OAuth2 authentication for Gmail API with multi-account support."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+logger = logging.getLogger(__name__)
 
 
 # Gmail API scopes
@@ -30,7 +34,7 @@ def get_readme_path() -> str:
     """Get the path to the README file for help messages."""
     if README_PATH.exists():
         return str(README_PATH)
-    return "https://github.com/CenterConsulting/cc-tools/tree/main/src/cc_gmail"
+    return "https://github.com/CenterConsulting/cc_tools/tree/main/src/cc_gmail"
 
 
 def get_config_dir() -> Path:
@@ -105,10 +109,10 @@ def list_accounts() -> List[Dict[str, Any]]:
                 try:
                     creds = load_credentials(name)
                     if creds:
-                        # We'll get email when we use the API
+                        # Email is retrieved when API is used
                         pass
-                except Exception:
-                    pass
+                except RefreshError as e:
+                    logger.debug(f"Could not load credentials for '{name}': {e}")
 
             accounts.append({
                 "name": name,
@@ -143,8 +147,8 @@ def load_credentials(account: str) -> Optional[Credentials]:
         try:
             creds.refresh(Request())
             save_credentials(account, creds)
-        except Exception:
-            # Refresh failed, need to re-authenticate
+        except RefreshError as e:
+            logger.warning(f"Token refresh failed for account '{account}': {e}")
             return None
 
     return creds if creds and creds.valid else None

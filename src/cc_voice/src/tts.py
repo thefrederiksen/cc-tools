@@ -1,11 +1,14 @@
 """Text-to-speech using OpenAI TTS API."""
 
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Literal
 
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 
 Voice = Literal["alloy", "echo", "fable", "nova", "onyx", "shimmer"]
@@ -118,7 +121,7 @@ def tts(
     # Multiple chunks - concatenate
     audio_parts = []
     for i, chunk in enumerate(chunks):
-        print(f"[INFO] Processing chunk {i+1}/{len(chunks)}...")
+        logger.info(f"Processing chunk {i+1}/{len(chunks)}")
         response = client.audio.speech.create(
             model=model,
             voice=voice,

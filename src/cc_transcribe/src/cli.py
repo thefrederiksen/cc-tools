@@ -1,5 +1,6 @@
 """CLI for cc_transcribe."""
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +15,9 @@ except ImportError:
     from src import __version__
     from src.transcriber import transcribe_video
     from src.ffmpeg import get_video_info
+
+# Configure logging for library modules
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 app = typer.Typer(
     name="cc_transcribe",

@@ -14,7 +14,7 @@ Part of the [CC Tools](../../README.md) suite.
 
 ## Installation
 
-Download the latest release from [GitHub Releases](https://github.com/CenterConsulting/cc-tools/releases).
+Download the latest release from [GitHub Releases](https://github.com/CenterConsulting/cc_tools/releases).
 
 Or install from source:
 

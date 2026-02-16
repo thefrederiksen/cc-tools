@@ -85,7 +85,7 @@ class GmailClient:
         payload = msg.get("payload", {})
         for header in payload.get("headers", []):
             name = header.get("name", "").lower()
-            if name in ["from", "to", "subject", "date", "cc", "bcc"]:
+            if name in ["from", "to", "subject", "date", "cc", "bcc", "message-id", "references"]:
                 headers[name] = header.get("value", "")
 
         # Get body
@@ -236,6 +236,80 @@ class GmailClient:
             .execute()
         )
 
+    def create_reply_draft(
+        self,
+        message_id: str,
+        body: str,
+        reply_all: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Create a draft reply to an existing message.
+
+        Args:
+            message_id: The message ID to reply to
+            body: Reply body text
+            reply_all: If True, reply to all recipients
+
+        Returns:
+            Created draft response.
+        """
+        # Get original message details
+        original = self.get_message_details(message_id)
+        headers = original.get("headers", {})
+        thread_id = original.get("thread_id")
+
+        # Build reply headers
+        original_from = headers.get("from", "")
+        original_subject = headers.get("subject", "")
+        original_message_id = headers.get("message-id", "")
+        original_references = headers.get("references", "")
+
+        # Reply goes to original sender
+        reply_to = original_from
+
+        # Handle reply-all
+        if reply_all:
+            original_to = headers.get("to", "")
+            original_cc = headers.get("cc", "")
+            # Combine all recipients except self
+            all_recipients = [reply_to]
+            if original_to:
+                all_recipients.append(original_to)
+            reply_to = ", ".join(all_recipients)
+
+        # Build subject with Re: prefix if not already present
+        if original_subject.lower().startswith("re:"):
+            reply_subject = original_subject
+        else:
+            reply_subject = f"Re: {original_subject}"
+
+        # Build References header (chain of message IDs)
+        if original_references:
+            references = f"{original_references} {original_message_id}"
+        else:
+            references = original_message_id
+
+        # Create the reply message
+        message = MIMEText(body, "plain")
+        message["to"] = reply_to
+        message["subject"] = reply_subject
+
+        if original_message_id:
+            message["In-Reply-To"] = original_message_id
+            message["References"] = references
+
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+
+        # Create draft in the same thread
+        draft_body = {"message": {"raw": raw, "threadId": thread_id}}
+
+        return (
+            self.service.users()
+            .drafts()
+            .create(userId=self.user_id, body=draft_body)
+            .execute()
+        )
+
     def list_drafts(self, max_results: int = 10) -> List[Dict[str, Any]]:
         """List drafts."""
         results = (
@@ -289,6 +363,54 @@ class GmailClient:
             .execute()
         )
 
+    def archive_message(self, message_id: str) -> Dict[str, Any]:
+        """
+        Archive a message by removing the INBOX label.
+
+        The message remains in All Mail and any other labels it has.
+        """
+        return (
+            self.service.users()
+            .messages()
+            .modify(
+                userId=self.user_id,
+                id=message_id,
+                body={"removeLabelIds": ["INBOX"]},
+            )
+            .execute()
+        )
+
+    def modify_labels(
+        self,
+        message_id: str,
+        add_labels: Optional[List[str]] = None,
+        remove_labels: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Modify labels on a message.
+
+        Args:
+            message_id: The message ID
+            add_labels: Label IDs to add
+            remove_labels: Label IDs to remove
+        """
+        body = {}
+        if add_labels:
+            body["addLabelIds"] = add_labels
+        if remove_labels:
+            body["removeLabelIds"] = remove_labels
+
+        return (
+            self.service.users()
+            .messages()
+            .modify(
+                userId=self.user_id,
+                id=message_id,
+                body=body,
+            )
+            .execute()
+        )
+
     def search(
         self, query: str, max_results: int = 10
     ) -> List[Dict[str, Any]]:
@@ -303,3 +425,56 @@ class GmailClient:
             List of matching messages.
         """
         return self.list_messages(query=query, max_results=max_results)
+
+    def create_label(self, name: str) -> Dict[str, Any]:
+        """
+        Create a new label.
+
+        Args:
+            name: The label name
+
+        Returns:
+            Created label response with id and name.
+        """
+        label_body = {
+            "name": name,
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show",
+        }
+        return (
+            self.service.users()
+            .labels()
+            .create(userId=self.user_id, body=label_body)
+            .execute()
+        )
+
+    def get_label_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a label by its name.
+
+        Args:
+            name: The label name to search for
+
+        Returns:
+            Label dict if found, None otherwise.
+        """
+        labels = self.list_labels()
+        for label in labels:
+            if label.get("name", "").lower() == name.lower():
+                return label
+        return None
+
+    def get_or_create_label(self, name: str) -> Dict[str, Any]:
+        """
+        Get an existing label or create it if it doesn't exist.
+
+        Args:
+            name: The label name
+
+        Returns:
+            Label dict with id and name.
+        """
+        existing = self.get_label_by_name(name)
+        if existing:
+            return existing
+        return self.create_label(name)

@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest a feature for cc-tools
+about: Suggest a feature for cc_tools
 title: '[FEATURE] '
 labels: enhancement
 assignees: ''

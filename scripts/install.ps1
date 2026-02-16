@@ -2,8 +2,8 @@
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "CenterConsulting/cc-tools"
-$InstallDir = "$env:LOCALAPPDATA\cc-tools"
+$Repo = "CenterConsulting/cc_tools"
+$InstallDir = "$env:LOCALAPPDATA\cc_tools"
 
 Write-Host "CC Tools Installer" -ForegroundColor Cyan
 Write-Host "==================" -ForegroundColor Cyan

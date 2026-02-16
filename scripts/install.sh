@@ -3,7 +3,7 @@
 
 set -e
 
-REPO="CenterConsulting/cc-tools"
+REPO="CenterConsulting/cc_tools"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Detect OS and architecture

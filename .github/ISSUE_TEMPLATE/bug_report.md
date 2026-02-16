@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug in cc-tools
+about: Report a bug in cc_tools
 title: '[BUG] '
 labels: bug
 assignees: ''

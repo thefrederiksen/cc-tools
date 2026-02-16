@@ -1,6 +1,6 @@
 # CC Tools - Handover Document
 
-This document captures the full context of the cc-tools project for anyone continuing this work.
+This document captures the full context of the cc_tools project for anyone continuing this work.
 
 ---
 
@@ -14,7 +14,7 @@ This document captures the full context of the cc-tools project for anyone conti
 3. Create content opportunities for social media campaigns
 4. Support the growing agentic coding ecosystem (Claude Code, Cursor, etc.)
 
-**Repository:** github.com/CenterConsulting/cc-tools
+**Repository:** github.com/CenterConsulting/cc_tools
 
 ---
 
@@ -42,7 +42,7 @@ The decision was made to rebrand and open source these tools to:
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Repository name | `cc-tools` | Short, memorable, brand-forward |
+| Repository name | `cc_tools` | Short, memorable, brand-forward |
 | Tool naming | `cc_[function]` | Consistent, clear, branded |
 | Repo structure | Monorepo | Easier management, shared docs |
 | License | MIT | Maximum adoption, no GPL restrictions |
@@ -160,7 +160,7 @@ The `fred_tools` library at `D:\ReposFred\fred_tools` contains working implement
 ## Repository Structure
 
 ```
-cc-tools/
+cc_tools/
     README.md                    # Overview, quick start, tool list
     LICENSE                      # MIT license
     CONTRIBUTING.md              # How to contribute (future)
@@ -224,7 +224,7 @@ The existing `fred_tools/mcp_server.py` shows how these tools are exposed as MCP
 
 1. **API Keys:** fred_tools has keys baked in. For open source, users need to provide their own. Options:
    - Environment variables (OPENAI_API_KEY)
-   - Config file (~/.cc-tools/config)
+   - Config file (~/.cc_tools/config)
    - CLI flag (--api-key)
 
    **Recommendation:** Environment variables (standard practice)
@@ -236,7 +236,7 @@ The existing `fred_tools/mcp_server.py` shows how these tools are exposed as MCP
    **Recommendation:** CC brand only, simple text marks for tools
 
 3. **Documentation Site:**
-   - Single site (cc-tools.centerconsulting.com)
+   - Single site (cc_tools.centerconsulting.com)
    - Per-tool READMEs
 
    **Recommendation:** Start with READMEs, add site if traction warrants
@@ -251,7 +251,7 @@ The existing `fred_tools/mcp_server.py` shows how these tools are exposed as MCP
 
 ## Immediate Next Steps
 
-1. [ ] Create folder structure in cc-tools repo
+1. [ ] Create folder structure in cc_tools repo
 2. [ ] Add README.md with tool overview
 3. [ ] Add MIT LICENSE
 4. [ ] Start cc_markdown implementation
@@ -276,10 +276,10 @@ The existing `fred_tools/mcp_server.py` shows how these tools are exposed as MCP
 
 **Company:** CenterConsulting Inc.
 **Website:** www.centerconsulting.com
-**Repository:** github.com/CenterConsulting/cc-tools
+**Repository:** github.com/CenterConsulting/cc_tools
 
 ---
 
 *Document Version: 1.0*
 *Created: 2026-02-12*
-*Purpose: Full context handover for cc-tools project*
+*Purpose: Full context handover for cc_tools project*

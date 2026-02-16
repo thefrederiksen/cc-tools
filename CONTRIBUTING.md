@@ -42,8 +42,8 @@ Thank you for your interest in contributing to CC Tools!
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/cc-tools.git
-cd cc-tools
+git clone https://github.com/YOUR_USERNAME/cc_tools.git
+cd cc_tools
 
 # Create virtual environment
 python -m venv venv

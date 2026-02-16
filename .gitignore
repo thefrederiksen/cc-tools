@@ -73,8 +73,8 @@ package-lock.json
 nul
 nul.*
 
-# Claude Code session data
-.claude/sounds/
+# Claude Code local config (user-specific)
+.claude/
 
 # Generated docs
 docs/site/

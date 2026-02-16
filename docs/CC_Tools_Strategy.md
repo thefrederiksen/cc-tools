@@ -6,7 +6,7 @@ CenterConsulting Inc. (CC) is launching a suite of open source CLI tools for age
 
 **Goal:** Build notoriety and brand recognition for CenterConsulting through valuable open source contributions to the AI/developer community.
 
-**Repository:** github.com/CenterConsulting/cc-tools
+**Repository:** github.com/CenterConsulting/cc_tools
 
 ---
 
@@ -187,10 +187,10 @@ Platforms: LinkedIn (primary for B2B/consulting), Twitter/X (developer community
 
 ### Repository Structure
 
-**Monorepo:** `github.com/CenterConsulting/cc-tools`
+**Monorepo:** `github.com/CenterConsulting/cc_tools`
 
 ```
-cc-tools/
+cc_tools/
     README.md                    # Overview of all tools
     LICENSE                      # MIT
     src/
@@ -239,7 +239,7 @@ cc-tools/
 
 ## Decisions Made
 
-1. **Repository name:** cc-tools
+1. **Repository name:** cc_tools
 2. **Naming pattern:** cc_[function]
 3. **Monorepo:** Yes, single repo for all tools
 4. **Language policy:** Best fit per tool (not restricted to one language)
@@ -250,7 +250,7 @@ cc-tools/
 
 1. **API keys** - Tools currently have keys baked in. For open source, users provide their own keys via environment variables or config file?
 2. **Branding assets** - Do we need logos for each tool or just the CC brand?
-3. **Documentation site** - Single site for all tools (cc-tools.centerconsulting.com) or per-tool READMEs?
+3. **Documentation site** - Single site for all tools (cc_tools.centerconsulting.com) or per-tool READMEs?
 4. **Community** - Discord/Slack for users? Or just GitHub issues?
 
 ---
@@ -259,7 +259,7 @@ cc-tools/
 
 1. [x] Finalize tool naming (cc_[function] pattern) - DONE
 2. [x] Decide monorepo vs separate repos - DONE (monorepo)
-3. [x] Choose repository name - DONE (cc-tools)
+3. [x] Choose repository name - DONE (cc_tools)
 4. [x] Create GitHub repository - DONE
 5. [ ] Set up repository structure
 6. [ ] Create cc_markdown as first release

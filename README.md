@@ -3,7 +3,8 @@
 Open source CLI tools for agentic coding workflows. Download. Run. Done.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://github.com/CenterConsulting/cc-tools/workflows/Build/badge.svg)](https://github.com/CenterConsulting/cc-tools/actions)
+[![Build Status](https://github.com/CenterConsulting/cc_tools/workflows/Build/badge.svg)](https://github.com/CenterConsulting/cc_tools/actions)
+[![Tests: 150 Passed](https://img.shields.io/badge/Tests-150%20Passed-brightgreen)](docs/TESTING.md)
 
 ---
 
@@ -13,12 +14,12 @@ Open source CLI tools for agentic coding workflows. Download. Run. Done.
 
 Download and run the setup executable:
 
-1. Download **[cc-tools-setup-windows-x64.exe](../../releases/latest)** from GitHub Releases
+1. Download **[cc_tools-setup-windows-x64.exe](../../releases/latest)** from GitHub Releases
 2. Double-click to run
 3. Restart your terminal
 
 The setup will:
-- Download all available cc-tools to `%LOCALAPPDATA%\cc-tools\`
+- Download all available cc_tools to `%LOCALAPPDATA%\cc_tools\`
 - Add to your PATH
 - Install SKILL.md for Claude Code integration
 
@@ -111,19 +112,19 @@ Requires FFmpeg and `OPENAI_API_KEY` environment variable.
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `cc_*.exe` | `%LOCALAPPDATA%\cc-tools\` | The CLI tools |
-| `SKILL.md` | `~/.claude/skills/cc-tools/` | Claude Code integration |
+| `cc_*.exe` | `%LOCALAPPDATA%\cc_tools\` | The CLI tools |
+| `SKILL.md` | `~/.claude/skills/cc_tools/` | Claude Code integration |
 
 ### Updating
 
-Run `cc-tools-setup.exe` again to download the latest versions.
+Run `cc_tools-setup.exe` again to download the latest versions.
 
 ### Build from Source
 
 ```bash
 # Clone the repo
-git clone https://github.com/CenterConsulting/cc-tools.git
-cd cc-tools
+git clone https://github.com/CenterConsulting/cc_tools.git
+cd cc_tools
 
 # Build all tools
 scripts\build-all.bat
@@ -148,8 +149,74 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed build instructions.
 
 ---
 
+## Test Status
+
+All tools are thoroughly tested with 150 automated tests:
+
+| Tool | Unit Tests | Integration | Status |
+|------|------------|-------------|--------|
+| cc_markdown | 13 | 12 | PASS |
+| cc_transcribe | 33 | - | PASS |
+| cc_image | 38 | - | PASS |
+| cc_voice | 21 | - | PASS |
+| cc_whisper | 9 | - | PASS |
+| cc_video | 24 | - | PASS |
+
+See [Testing Documentation](docs/TESTING.md) for details.
+
+### Running Tests
+
+```bash
+# Run all unit tests for a tool
+cd src/cc_markdown
+python -m pytest tests/ -v
+
+# Run integration tests
+python -m pytest tests/integration/ -v
+```
+
+---
+
+## Claude Code Integration
+
+CC Tools are designed to work seamlessly with Claude Code and other AI coding assistants.
+
+### Automatic Setup
+
+The installer automatically installs `SKILL.md` to `~/.claude/skills/cc_tools/`, enabling Claude Code to use these tools directly.
+
+### MCP Server Tools
+
+CC Tools includes MCP server tools for direct integration:
+
+| MCP Tool | Function |
+|----------|----------|
+| `fred_markdown_to_pdf` | Convert markdown to PDF |
+| `fred_markdown_to_word` | Convert markdown to Word |
+| `fred_transcribe_video` | Transcribe video with timestamps |
+| `fred_tts` | Text-to-speech (OpenAI) |
+| `fred_whisper` | Speech-to-text (OpenAI) |
+| `fred_image_gen` | Generate images (DALL-E) |
+| `fred_vision_describe` | Describe images (GPT-4V) |
+| `fred_vision_extract_text` | OCR from images (GPT-4V) |
+| `fred_llm` | Call OpenAI models |
+| `fred_embed` | Generate embeddings |
+
+### Example: Claude Code Usage
+
+```
+User: Convert my report.md to a PDF with the boardroom theme
+Claude: [Uses cc_markdown tool to convert report.md to report.pdf with boardroom theme]
+
+User: Transcribe this video and extract key screenshots
+Claude: [Uses fred_transcribe_video to transcribe with timestamp extraction]
+```
+
+---
+
 ## Documentation
 
+- [Testing Documentation](docs/TESTING.md)
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md)
 - [Strategy Document](docs/CC_Tools_Strategy.md)
 - [cc_markdown PRD](docs/cc_markdown_PRD.md)

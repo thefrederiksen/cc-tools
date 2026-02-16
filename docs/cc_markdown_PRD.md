@@ -4,7 +4,7 @@
 
 **cc_markdown** is an MIT-licensed CLI tool that transforms Markdown into professionally styled PDF, Word, and HTML documents. Download the executable, run a command, get a beautiful document.
 
-Part of the **cc-tools** suite from CenterConsulting Inc.
+Part of the **cc_tools** suite from CenterConsulting Inc.
 
 ### The Problem
 
@@ -212,7 +212,7 @@ These can be added in v2 based on user feedback.
 
 ## Deliverables
 
-1. **Source code** in cc-tools monorepo
+1. **Source code** in cc_tools monorepo
 2. **CLI Executable** - `cc_markdown` (or `cc_markdown.exe` on Windows)
 3. **GitHub Releases** - Precompiled binaries:
    - Windows x64

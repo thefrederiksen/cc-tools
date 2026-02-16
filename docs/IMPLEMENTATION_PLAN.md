@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the complete implementation plan for the cc-tools open source project, starting with repository structure and the first tool (cc_markdown).
+This document outlines the complete implementation plan for the cc_tools open source project, starting with repository structure and the first tool (cc_markdown).
 
 ---
 
@@ -11,7 +11,7 @@ This document outlines the complete implementation plan for the cc-tools open so
 ### 1.1 Directory Structure
 
 ```
-cc-tools/
+cc_tools/
 ├── .github/
 │   ├── workflows/
 │   │   ├── build.yml              # CI for every push
@@ -121,7 +121,7 @@ Built by CenterConsulting Inc.
 ```json
 // .claude-plugin/plugin.json
 {
-  "name": "cc-tools",
+  "name": "cc_tools",
   "version": "0.1.0",
   "description": "CLI tools for agentic coding workflows",
   "author": "CenterConsulting Inc.",

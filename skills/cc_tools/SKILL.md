@@ -1,8 +1,8 @@
-# cc-tools
+# cc_tools
 
 A suite of command-line tools for document conversion, media processing, and AI-powered workflows.
 
-**GitHub:** https://github.com/CenterConsulting/cc-tools
+**GitHub:** https://github.com/CenterConsulting/cc_tools
 
 ---
 
@@ -176,7 +176,7 @@ cc_gmail accounts add personal
 cc_gmail auth
 ```
 
-See the [full README](https://github.com/CenterConsulting/cc-tools/tree/main/src/cc_gmail) for detailed Google Cloud setup steps.
+See the [full README](https://github.com/CenterConsulting/cc_tools/tree/main/src/cc_gmail) for detailed Google Cloud setup steps.
 
 ### Multiple Accounts
 
@@ -275,13 +275,13 @@ cc_gmail profile
 
 Download and run the setup executable:
 
-1. Download `cc-tools-setup-windows-x64.exe` from [GitHub Releases](https://github.com/CenterConsulting/cc-tools/releases)
+1. Download `cc_tools-setup-windows-x64.exe` from [GitHub Releases](https://github.com/CenterConsulting/cc_tools/releases)
 2. Run it - it downloads tools, adds to PATH, installs this skill file
 3. Restart your terminal
 
 ### Manual Install
 
-Download individual tools from [GitHub Releases](https://github.com/CenterConsulting/cc-tools/releases):
+Download individual tools from [GitHub Releases](https://github.com/CenterConsulting/cc_tools/releases):
 - `cc_markdown-windows-x64.exe`
 - `cc_transcribe-windows-x64.exe`
 
@@ -308,4 +308,4 @@ export OPENAI_API_KEY=your-key-here
 
 ## License
 
-MIT License - https://github.com/CenterConsulting/cc-tools/blob/main/LICENSE
+MIT License - https://github.com/CenterConsulting/cc_tools/blob/main/LICENSE

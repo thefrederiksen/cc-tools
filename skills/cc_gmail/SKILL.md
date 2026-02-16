@@ -1,8 +1,8 @@
-# cc-gmail
+# cc_gmail
 
 Gmail CLI for Claude Code: read, send, search, and manage emails from the command line.
 
-**Requirement:** `cc_gmail.exe` must be in PATH (install via `install.bat` in cc-tools repo)
+**Requirement:** `cc_gmail.exe` must be in PATH (install via `install.bat` in cc_tools repo)
 
 ---
 
@@ -171,7 +171,7 @@ cc_gmail auth --revoke
 4. Copy credentials.json to `~/.cc_gmail/accounts/personal/`
 5. Run: `cc_gmail auth`
 
-See full setup: https://github.com/CenterConsulting/cc-tools/tree/main/src/cc_gmail
+See full setup: https://github.com/CenterConsulting/cc_tools/tree/main/src/cc_gmail
 
 ---
 
@@ -201,4 +201,4 @@ cc_gmail send -t "client@example.com" -s "Documents" -b "Please find attached." 
 
 ## License
 
-MIT - https://github.com/CenterConsulting/cc-tools
+MIT - https://github.com/CenterConsulting/cc_tools

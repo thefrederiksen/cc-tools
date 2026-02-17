@@ -5,10 +5,13 @@ from pathlib import Path
 from typing import Optional, List
 
 import typer
+from googleapiclient.errors import HttpError
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+
+logger = logging.getLogger(__name__)
 
 try:
     from . import __version__
@@ -166,8 +169,12 @@ def get_client(account: Optional[str] = None) -> GmailClient:
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
-    except Exception as e:
+    except HttpError as e:
         handle_api_error(e, acct)
+        raise typer.Exit(1)
+    except (ValueError, OSError) as e:
+        logger.error(f"Authentication error for {acct}: {e}")
+        console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -201,7 +208,7 @@ def main(
 # =============================================================================
 
 @accounts_app.command("list")
-def accounts_list():
+def accounts_list() -> None:
     """List all configured Gmail accounts."""
     accts = list_accounts()
 
@@ -403,8 +410,12 @@ def auth(
         profile = client.get_profile()
 
         console.print(f"\n[green]Authenticated as:[/green] {profile.get('emailAddress')}")
-    except Exception as e:
+    except HttpError as e:
         handle_api_error(e, acct)
+        raise typer.Exit(1)
+    except (ValueError, OSError) as e:
+        logger.error(f"Auth error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -417,6 +428,7 @@ def list_emails(
     label: str = typer.Option("INBOX", "-l", "--label", help="Label/folder to list"),
     count: int = typer.Option(10, "-n", "--count", help="Number of emails to show"),
     unread: bool = typer.Option(False, "-u", "--unread", help="Show only unread"),
+    include_spam: bool = typer.Option(False, "--include-spam", help="Include messages from spam and trash"),
 ):
     """List recent emails from a label/folder."""
     client = get_client()
@@ -426,7 +438,11 @@ def list_emails(
         label_ids.append("UNREAD")
 
     try:
-        messages = client.list_messages(label_ids=label_ids, max_results=count)
+        messages = client.list_messages(
+            label_ids=label_ids,
+            max_results=count,
+            include_spam_trash=include_spam,
+        )
 
         if not messages:
             console.print(f"[yellow]No messages in {label}[/yellow]")
@@ -451,7 +467,12 @@ def list_emails(
             console.print(f"    Date: {summary['date'][:25] if summary['date'] else ''}", style=style)
             console.print()
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Invalid parameter: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -491,7 +512,12 @@ def read(
         # Mark as read
         client.mark_as_read(message_id)
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error reading message: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Invalid message: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -532,7 +558,12 @@ def send(
         )
         console.print(f"[green]Message sent.[/green] ID: {result.get('id')}")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error sending: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except (ValueError, FileNotFoundError) as e:
+        logger.error(f"Send error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -569,7 +600,12 @@ def draft(
         )
         console.print(f"[green]Draft created.[/green] ID: {result.get('id')}")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error creating draft: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Draft error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -610,7 +646,50 @@ def reply(
         console.print(f"  Subject: Re: {original_subject}" if not original_subject.lower().startswith("re:") else f"  Subject: {original_subject}")
         console.print(f"  Draft ID: {result.get('id')}")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error creating reply: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Reply error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def drafts(
+    count: int = typer.Option(10, "-n", "--count", help="Number of drafts to show"),
+):
+    """List draft emails."""
+    client = get_client()
+
+    try:
+        draft_list = client.list_drafts(max_results=count)
+
+        if not draft_list:
+            console.print("[yellow]No drafts found.[/yellow]")
+            return
+
+        acct = resolve_account(state.account)
+        console.print(f"\n[cyan]Drafts ({acct})[/cyan]\n")
+
+        for draft in draft_list:
+            draft_id = draft.get("id")
+            msg_id = draft.get("message", {}).get("id")
+            if msg_id:
+                msg = client.get_message_details(msg_id)
+                summary = format_message_summary(msg)
+                console.print(f"[dim]{draft_id}[/dim]")
+                console.print(f"    To: {truncate(summary.get('to', 'N/A'), 50)}")
+                console.print(f"    Subject: {truncate(summary['subject'], 60)}")
+                console.print()
+
+    except HttpError as e:
+        logger.error(f"Gmail API error listing drafts: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Drafts error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -619,12 +698,17 @@ def reply(
 def search(
     query: str = typer.Argument(..., help="Gmail search query"),
     count: int = typer.Option(10, "-n", "--count", help="Number of results"),
+    include_spam: bool = typer.Option(False, "--include-spam", help="Include messages from spam and trash"),
 ):
     """Search emails using Gmail query syntax."""
     client = get_client()
 
     try:
-        messages = client.search(query=query, max_results=count)
+        messages = client.search(
+            query=query,
+            max_results=count,
+            include_spam_trash=include_spam,
+        )
 
         if not messages:
             console.print(f"[yellow]No messages matching:[/yellow] {query}")
@@ -645,7 +729,12 @@ def search(
 
         console.print(f"[dim]Found {len(messages)} message(s)[/dim]")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error searching: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Search error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -663,13 +752,18 @@ def count(
         result = client.count_messages(label_ids=label_ids, query=query)
         console.print(f"{result}")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error counting: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Count error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
 
 @app.command()
-def labels():
+def labels() -> None:
     """List all labels/folders."""
     client = get_client()
 
@@ -708,7 +802,12 @@ def labels():
 
             console.print(table)
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error listing labels: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Labels error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -737,7 +836,33 @@ def delete(
         else:
             console.print(f"[green]Message moved to trash.[/green]")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error deleting: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Delete error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def untrash(
+    message_id: str = typer.Argument(..., help="Message ID to restore"),
+):
+    """Restore an email from trash."""
+    client = get_client()
+
+    try:
+        client.untrash_message(message_id)
+        console.print("[green]Message restored from trash.[/green]")
+
+    except HttpError as e:
+        logger.error(f"Gmail API error untrashing: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Untrash error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -757,7 +882,12 @@ def archive(
             client.batch_archive_messages(message_ids)
             console.print(f"[green]{len(message_ids)} messages archived.[/green]")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error archiving: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Archive error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -832,13 +962,18 @@ def archive_before(
         else:
             console.print("[yellow]No messages to archive.[/yellow]")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error in archive-before: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Archive-before error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
 
 @app.command()
-def profile():
+def profile() -> None:
     """Show authenticated user profile."""
     client = get_client()
 
@@ -857,7 +992,12 @@ def profile():
 
         console.print(table)
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error getting profile: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Profile error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -971,7 +1111,12 @@ def stats(
 
         console.print()
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error getting stats: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Stats error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -1009,7 +1154,12 @@ def label_stats(
 
     except typer.Exit:
         raise
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error getting label stats: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Label stats error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -1033,7 +1183,12 @@ def label_create(
         console.print(f"[green]Label created:[/green] {label.get('name')}")
         console.print(f"Label ID: {label.get('id')}")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error creating label: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Label create error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
@@ -1063,7 +1218,12 @@ def move(
         else:
             console.print(f"[green]Message moved to '{label}'.[/green]")
 
-    except Exception as e:
+    except HttpError as e:
+        logger.error(f"Gmail API error moving message: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        logger.error(f"Move error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 

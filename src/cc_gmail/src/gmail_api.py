@@ -1,6 +1,7 @@
 """Gmail API wrapper for common operations."""
 
 import base64
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -9,7 +10,10 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+
+logger = logging.getLogger(__name__)
 
 
 class GmailClient:
@@ -48,6 +52,7 @@ class GmailClient:
         label_ids: Optional[List[str]] = None,
         query: Optional[str] = None,
         max_results: int = 10,
+        include_spam_trash: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         List messages matching criteria.
@@ -56,6 +61,7 @@ class GmailClient:
             label_ids: Filter by label IDs (e.g., ["INBOX", "UNREAD"])
             query: Gmail search query string
             max_results: Maximum number of messages to return
+            include_spam_trash: Include messages from SPAM and TRASH
 
         Returns:
             List of message dictionaries with id and threadId.
@@ -66,6 +72,8 @@ class GmailClient:
             kwargs["labelIds"] = label_ids
         if query:
             kwargs["q"] = query
+        if include_spam_trash:
+            kwargs["includeSpamTrash"] = True
 
         results = self.service.users().messages().list(**kwargs).execute()
         return results.get("messages", [])
@@ -395,6 +403,15 @@ class GmailClient:
                 userId=self.user_id, id=message_id
             ).execute()
 
+    def untrash_message(self, message_id: str) -> Dict[str, Any]:
+        """Restore a message from trash."""
+        return (
+            self.service.users()
+            .messages()
+            .untrash(userId=self.user_id, id=message_id)
+            .execute()
+        )
+
     def mark_as_read(self, message_id: str) -> Dict[str, Any]:
         """Mark a message as read."""
         return (
@@ -499,7 +516,10 @@ class GmailClient:
         )
 
     def search(
-        self, query: str, max_results: int = 10
+        self,
+        query: str,
+        max_results: int = 10,
+        include_spam_trash: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Search messages using Gmail query syntax.
@@ -507,11 +527,16 @@ class GmailClient:
         Args:
             query: Gmail search query (e.g., "from:foo@bar.com subject:hello")
             max_results: Maximum results to return
+            include_spam_trash: Include messages from SPAM and TRASH
 
         Returns:
             List of matching messages.
         """
-        return self.list_messages(query=query, max_results=max_results)
+        return self.list_messages(
+            query=query,
+            max_results=max_results,
+            include_spam_trash=include_spam_trash,
+        )
 
     def count_messages(
         self,
@@ -573,8 +598,10 @@ class GmailClient:
                     "threads_total": label.get("threadsTotal", 0),
                     "threads_unread": label.get("threadsUnread", 0),
                 }
-            except Exception:
-                pass  # Label might not exist
+            except HttpError as e:
+                logger.debug(f"Label {label_id} not accessible: {e}")
+            except ValueError as e:
+                logger.debug(f"Invalid label {label_id}: {e}")
 
         categories = {}
         for label_id in category_ids:
@@ -587,8 +614,10 @@ class GmailClient:
                     "total": label.get("messagesTotal", 0),
                     "unread": label.get("messagesUnread", 0),
                 }
-            except Exception:
-                pass
+            except HttpError as e:
+                logger.debug(f"Category {label_id} not accessible: {e}")
+            except ValueError as e:
+                logger.debug(f"Invalid category {label_id}: {e}")
 
         # Get user labels
         all_labels = self.list_labels()
@@ -603,8 +632,10 @@ class GmailClient:
                         "total": details.get("messagesTotal", 0),
                         "unread": details.get("messagesUnread", 0),
                     })
-                except Exception:
-                    pass
+                except HttpError as e:
+                    logger.debug(f"User label {label.get('id')} not accessible: {e}")
+                except ValueError as e:
+                    logger.debug(f"Invalid user label {label.get('id')}: {e}")
 
         # Sort user labels by unread count (descending)
         user_labels.sort(key=lambda x: x.get("unread", 0), reverse=True)

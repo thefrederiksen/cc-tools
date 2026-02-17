@@ -29,6 +29,20 @@ class GmailClient:
         results = self.service.users().labels().list(userId=self.user_id).execute()
         return results.get("labels", [])
 
+    def get_label(self, label_id: str) -> Dict[str, Any]:
+        """
+        Get detailed info for a specific label including message counts.
+
+        Args:
+            label_id: The label ID (e.g., "INBOX", "CATEGORY_UPDATES")
+
+        Returns:
+            Label dict with messagesTotal, messagesUnread, threadsTotal, threadsUnread.
+        """
+        return self.service.users().labels().get(
+            userId=self.user_id, id=label_id
+        ).execute()
+
     def list_messages(
         self,
         label_ids: Optional[List[str]] = None,
@@ -55,6 +69,50 @@ class GmailClient:
 
         results = self.service.users().messages().list(**kwargs).execute()
         return results.get("messages", [])
+
+    def list_all_messages(
+        self,
+        label_ids: Optional[List[str]] = None,
+        query: Optional[str] = None,
+        max_results: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        List ALL messages matching criteria, handling pagination.
+
+        Args:
+            label_ids: Filter by label IDs
+            query: Gmail search query
+            max_results: Optional cap on total results (None = all)
+
+        Returns:
+            List of all matching message dicts with id and threadId.
+        """
+        all_messages = []
+        page_token = None
+
+        while True:
+            kwargs = {"userId": self.user_id, "maxResults": 500}
+            if label_ids:
+                kwargs["labelIds"] = label_ids
+            if query:
+                kwargs["q"] = query
+            if page_token:
+                kwargs["pageToken"] = page_token
+
+            results = self.service.users().messages().list(**kwargs).execute()
+            messages = results.get("messages", [])
+            all_messages.extend(messages)
+
+            # Check if we've hit optional cap
+            if max_results and len(all_messages) >= max_results:
+                return all_messages[:max_results]
+
+            # Check for more pages
+            page_token = results.get("nextPageToken")
+            if not page_token:
+                break
+
+        return all_messages
 
     def get_message(
         self, message_id: str, format: str = "full"
@@ -380,6 +438,35 @@ class GmailClient:
             .execute()
         )
 
+    def batch_archive_messages(self, message_ids: List[str]) -> int:
+        """
+        Archive multiple messages at once using batchModify.
+        Handles chunking for large lists (API limit: 1000/batch).
+
+        Args:
+            message_ids: List of message IDs to archive
+
+        Returns:
+            Number of messages archived.
+        """
+        if not message_ids:
+            return 0
+
+        archived = 0
+        # Process in chunks of 1000 (Gmail API limit)
+        for i in range(0, len(message_ids), 1000):
+            chunk = message_ids[i:i + 1000]
+            self.service.users().messages().batchModify(
+                userId=self.user_id,
+                body={
+                    "ids": chunk,
+                    "removeLabelIds": ["INBOX"],
+                },
+            ).execute()
+            archived += len(chunk)
+
+        return archived
+
     def modify_labels(
         self,
         message_id: str,
@@ -425,6 +512,113 @@ class GmailClient:
             List of matching messages.
         """
         return self.list_messages(query=query, max_results=max_results)
+
+    def count_messages(
+        self,
+        label_ids: Optional[List[str]] = None,
+        query: Optional[str] = None,
+    ) -> int:
+        """
+        Get estimated count of messages matching criteria.
+
+        Uses Gmail's resultSizeEstimate for instant server-side count.
+        No pagination required - returns immediately.
+
+        Args:
+            label_ids: Filter by label IDs (e.g., ["INBOX", "UNREAD"])
+            query: Gmail search query string
+
+        Returns:
+            Estimated count of matching messages.
+        """
+        kwargs = {"userId": self.user_id}
+        if label_ids:
+            kwargs["labelIds"] = label_ids
+        if query:
+            kwargs["q"] = query
+        results = self.service.users().messages().list(**kwargs).execute()
+        return int(results.get("resultSizeEstimate", 0))
+
+    def get_mailbox_stats(self) -> Dict[str, Any]:
+        """
+        Get comprehensive mailbox statistics.
+
+        Returns a dictionary with:
+        - profile: email, totals
+        - system_labels: INBOX, SENT, DRAFT, SPAM, TRASH, STARRED, IMPORTANT
+        - categories: UPDATES, PROMOTIONS, SOCIAL, FORUMS
+        - user_labels: all custom labels with counts
+        """
+        profile = self.get_profile()
+
+        # System labels to fetch
+        system_label_ids = [
+            "INBOX", "SENT", "DRAFT", "SPAM", "TRASH",
+            "STARRED", "IMPORTANT", "UNREAD"
+        ]
+
+        # Category labels
+        category_ids = [
+            "CATEGORY_PERSONAL", "CATEGORY_UPDATES",
+            "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"
+        ]
+
+        system_labels = {}
+        for label_id in system_label_ids:
+            try:
+                label = self.get_label(label_id)
+                system_labels[label_id] = {
+                    "total": label.get("messagesTotal", 0),
+                    "unread": label.get("messagesUnread", 0),
+                    "threads_total": label.get("threadsTotal", 0),
+                    "threads_unread": label.get("threadsUnread", 0),
+                }
+            except Exception:
+                pass  # Label might not exist
+
+        categories = {}
+        for label_id in category_ids:
+            try:
+                label = self.get_label(label_id)
+                # Use friendly name
+                name = label_id.replace("CATEGORY_", "").title()
+                categories[name] = {
+                    "id": label_id,
+                    "total": label.get("messagesTotal", 0),
+                    "unread": label.get("messagesUnread", 0),
+                }
+            except Exception:
+                pass
+
+        # Get user labels
+        all_labels = self.list_labels()
+        user_labels = []
+        for label in all_labels:
+            if label.get("type") != "system":
+                try:
+                    details = self.get_label(label.get("id"))
+                    user_labels.append({
+                        "id": label.get("id"),
+                        "name": label.get("name"),
+                        "total": details.get("messagesTotal", 0),
+                        "unread": details.get("messagesUnread", 0),
+                    })
+                except Exception:
+                    pass
+
+        # Sort user labels by unread count (descending)
+        user_labels.sort(key=lambda x: x.get("unread", 0), reverse=True)
+
+        return {
+            "profile": {
+                "email": profile.get("emailAddress"),
+                "messages_total": profile.get("messagesTotal", 0),
+                "threads_total": profile.get("threadsTotal", 0),
+            },
+            "system_labels": system_labels,
+            "categories": categories,
+            "user_labels": user_labels,
+        }
 
     def create_label(self, name: str) -> Dict[str, Any]:
         """

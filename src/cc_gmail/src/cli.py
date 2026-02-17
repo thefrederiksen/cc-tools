@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import typer
 from rich.console import Console
@@ -651,6 +651,24 @@ def search(
 
 
 @app.command()
+def count(
+    query: str = typer.Argument(None, help="Gmail search query (optional)"),
+    label: str = typer.Option(None, "-l", "--label", help="Label to count (e.g., INBOX)"),
+):
+    """Count emails matching a query (fast server-side estimate)."""
+    client = get_client()
+
+    try:
+        label_ids = [label.upper()] if label else None
+        result = client.count_messages(label_ids=label_ids, query=query)
+        console.print(f"{result}")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def labels():
     """List all labels/folders."""
     client = get_client()
@@ -726,14 +744,88 @@ def delete(
 
 @app.command()
 def archive(
-    message_id: str = typer.Argument(..., help="Message ID to archive"),
+    message_ids: List[str] = typer.Argument(..., help="Message ID(s) to archive"),
 ):
-    """Archive an email (remove from inbox, keep in All Mail)."""
+    """Archive email(s) (remove from inbox, keep in All Mail). Accepts multiple IDs."""
     client = get_client()
 
     try:
-        client.archive_message(message_id)
-        console.print(f"[green]Message archived.[/green]")
+        if len(message_ids) == 1:
+            client.archive_message(message_ids[0])
+            console.print("[green]Message archived.[/green]")
+        else:
+            client.batch_archive_messages(message_ids)
+            console.print(f"[green]{len(message_ids)} messages archived.[/green]")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command("archive-before")
+def archive_before(
+    date: str = typer.Argument(..., help="Archive messages before this date (YYYY-MM-DD)"),
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be archived without doing it"),
+    yes: bool = typer.Option(False, "-y", "--yes", help="Skip confirmation prompt"),
+    category: Optional[str] = typer.Option(None, "-c", "--category", help="Filter by category (updates, promotions, social, forums)"),
+):
+    """Archive all inbox messages before a specified date."""
+    client = get_client()
+
+    # Build query
+    # Convert YYYY-MM-DD to YYYY/MM/DD for Gmail
+    date_formatted = date.replace("-", "/")
+    query = f"in:inbox before:{date_formatted}"
+    if category:
+        query += f" category:{category.lower()}"
+
+    try:
+        # Get count first (fast estimate)
+        acct = resolve_account(state.account)
+        estimate = client.count_messages(query=query)
+        console.print(f"\n[cyan]Account:[/cyan] {acct}")
+        console.print(f"[cyan]Query:[/cyan] {query}")
+        console.print(f"[cyan]Estimated matches:[/cyan] {estimate:,}")
+
+        if estimate == 0:
+            console.print("[yellow]No messages match this query.[/yellow]")
+            return
+
+        if dry_run:
+            console.print("\n[yellow]DRY RUN - No changes made.[/yellow]")
+            # Show sample of what would be archived
+            sample = client.list_messages(query=query, max_results=5)
+            if sample:
+                console.print("\nSample messages that would be archived:")
+                for msg_summary in sample:
+                    msg = client.get_message_details(msg_summary["id"])
+                    summary = format_message_summary(msg)
+                    console.print(f"  - {summary['date'][:10] if summary['date'] else 'N/A'} | {truncate(summary['from'], 30)} | {truncate(summary['subject'], 40)}")
+            return
+
+        # Confirmation
+        if not yes:
+            confirm = typer.confirm(f"\nArchive ~{estimate:,} messages before {date}?")
+            if not confirm:
+                console.print("[yellow]Cancelled.[/yellow]")
+                return
+
+        # Fetch all matching message IDs
+        console.print("\n[blue]Fetching message IDs...[/blue]")
+        messages = client.list_all_messages(query=query)
+        total = len(messages)
+        console.print(f"[blue]Found {total:,} messages to archive.[/blue]")
+
+        if total == 0:
+            console.print("[yellow]No messages to archive.[/yellow]")
+            return
+
+        # Archive in batches
+        console.print("[blue]Archiving...[/blue]")
+        message_ids = [m["id"] for m in messages]
+        archived = client.batch_archive_messages(message_ids)
+
+        console.print(f"\n[green]Done! Archived {archived:,} messages.[/green]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -760,6 +852,158 @@ def profile():
 
         console.print(table)
 
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+def format_number(n: int) -> str:
+    """Format number with thousands separator."""
+    return f"{n:,}"
+
+
+@app.command()
+def stats(
+    show_labels: bool = typer.Option(False, "-l", "--labels", help="Show user labels"),
+    top: int = typer.Option(10, "-t", "--top", help="Number of top labels to show"),
+):
+    """Show comprehensive mailbox statistics dashboard."""
+    client = get_client()
+
+    try:
+        acct = resolve_account(state.account)
+        console.print(f"\n[bold cyan]Gmail Statistics Dashboard[/bold cyan] ({acct})")
+        console.print("Loading stats from server...\n")
+
+        stats_data = client.get_mailbox_stats()
+        profile = stats_data["profile"]
+        system = stats_data["system_labels"]
+        categories = stats_data["categories"]
+        user_labels = stats_data["user_labels"]
+
+        # Profile summary
+        console.print(f"[bold]Account:[/bold] {profile['email']}")
+        console.print(f"[bold]Total Messages:[/bold] {format_number(profile['messages_total'])}")
+        console.print(f"[bold]Total Threads:[/bold] {format_number(profile['threads_total'])}")
+        console.print()
+
+        # Inbox overview table
+        inbox_table = Table(title="Inbox Overview")
+        inbox_table.add_column("Folder", style="cyan")
+        inbox_table.add_column("Total", justify="right")
+        inbox_table.add_column("Unread", justify="right", style="yellow")
+
+        inbox_order = ["INBOX", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT", "SPAM", "TRASH"]
+        for label_id in inbox_order:
+            if label_id in system:
+                data = system[label_id]
+                inbox_table.add_row(
+                    label_id.title(),
+                    format_number(data["total"]),
+                    format_number(data["unread"]) if data["unread"] > 0 else "-",
+                )
+
+        console.print(inbox_table)
+        console.print()
+
+        # Categories table
+        if categories:
+            cat_table = Table(title="Categories")
+            cat_table.add_column("Category", style="cyan")
+            cat_table.add_column("Total", justify="right")
+            cat_table.add_column("Unread", justify="right", style="yellow")
+
+            cat_order = ["Personal", "Updates", "Promotions", "Social", "Forums"]
+            for cat_name in cat_order:
+                if cat_name in categories:
+                    data = categories[cat_name]
+                    cat_table.add_row(
+                        cat_name,
+                        format_number(data["total"]),
+                        format_number(data["unread"]) if data["unread"] > 0 else "-",
+                    )
+
+            console.print(cat_table)
+            console.print()
+
+        # User labels (optional, sorted by unread)
+        if show_labels and user_labels:
+            label_table = Table(title=f"User Labels (Top {top} by unread)")
+            label_table.add_column("Label", style="cyan")
+            label_table.add_column("Total", justify="right")
+            label_table.add_column("Unread", justify="right", style="yellow")
+
+            for label in user_labels[:top]:
+                # Sanitize label name for display (remove problematic unicode)
+                name = label["name"]
+                try:
+                    name.encode('cp1252')
+                except UnicodeEncodeError:
+                    name = name.encode('ascii', 'replace').decode('ascii')
+
+                label_table.add_row(
+                    name[:30],  # Truncate long names
+                    format_number(label["total"]),
+                    format_number(label["unread"]) if label["unread"] > 0 else "-",
+                )
+
+            console.print(label_table)
+            console.print()
+
+        # Quick summary
+        inbox_unread = system.get("INBOX", {}).get("unread", 0)
+        total_unread = system.get("UNREAD", {}).get("total", 0)
+
+        console.print("[bold]Quick Summary:[/bold]")
+        console.print(f"  Inbox unread: {format_number(inbox_unread)}")
+        console.print(f"  Total unread: {format_number(total_unread)}")
+
+        if categories:
+            updates_unread = categories.get("Updates", {}).get("unread", 0)
+            promos_unread = categories.get("Promotions", {}).get("unread", 0)
+            social_unread = categories.get("Social", {}).get("unread", 0)
+            console.print(f"  Updates: {format_number(updates_unread)} | Promotions: {format_number(promos_unread)} | Social: {format_number(social_unread)}")
+
+        console.print()
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+@app.command("label-stats")
+def label_stats(
+    label: str = typer.Argument(..., help="Label name or ID"),
+):
+    """Show detailed statistics for a specific label."""
+    client = get_client()
+
+    try:
+        # Try as ID first, then by name
+        try:
+            data = client.get_label(label.upper())
+        except Exception:
+            found = client.get_label_by_name(label)
+            if not found:
+                console.print(f"[red]Error:[/red] Label '{label}' not found")
+                raise typer.Exit(1)
+            data = client.get_label(found["id"])
+
+        table = Table(title=f"Label: {data.get('name', label)}")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", justify="right")
+
+        table.add_row("Total Messages", format_number(data.get("messagesTotal", 0)))
+        table.add_row("Unread Messages", format_number(data.get("messagesUnread", 0)))
+        table.add_row("Total Threads", format_number(data.get("threadsTotal", 0)))
+        table.add_row("Unread Threads", format_number(data.get("threadsUnread", 0)))
+        table.add_row("Type", data.get("type", "user"))
+        table.add_row("ID", data.get("id", ""))
+
+        console.print(table)
+
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)

@@ -24,7 +24,7 @@ if not exist "%INSTALL_DIR%" (
 REM ============================================
 REM Python tools (built with PyInstaller)
 REM ============================================
-set "PYTHON_TOOLS=cc_gmail cc_image cc_markdown cc_setup cc_transcribe cc_video cc_voice cc_whisper"
+set "PYTHON_TOOLS=cc_crawl4ai cc_gmail cc_image cc_linkedin cc_markdown cc_outlook cc_reddit cc_setup cc_transcribe cc_video cc_voice cc_whisper cc_youtube_info"
 
 for %%T in (%PYTHON_TOOLS%) do (
     echo.
@@ -40,7 +40,18 @@ for %%T in (%PYTHON_TOOLS%) do (
 
         if !errorlevel! equ 0 (
             REM Copy exe to install directory
-            if exist "dist\%%T.exe" (
+            REM Handle special case: cc_setup builds as cc-tools-setup.exe
+            if "%%T"=="cc_setup" (
+                if exist "dist\cc-tools-setup.exe" (
+                    copy /Y "dist\cc-tools-setup.exe" "%INSTALL_DIR%\" >nul
+                    echo [OK] cc-tools-setup.exe copied to %INSTALL_DIR%
+                    set /a SUCCESS_COUNT+=1
+                ) else (
+                    echo [FAIL] cc-tools-setup.exe not found after build
+                    set "FAILED=!FAILED! %%T"
+                    set /a FAIL_COUNT+=1
+                )
+            ) else if exist "dist\%%T.exe" (
                 copy /Y "dist\%%T.exe" "%INSTALL_DIR%\" >nul
                 echo [OK] %%T.exe copied to %INSTALL_DIR%
                 set /a SUCCESS_COUNT+=1
@@ -65,46 +76,115 @@ REM Node.js tools (cc_browser)
 REM ============================================
 echo.
 echo --------------------------------------------
-echo Setting up cc_browser (Node.js)...
+echo Building cc_browser (Node.js)...
 echo --------------------------------------------
 
 set "BROWSER_SRC=%REPO_DIR%\src\cc_browser"
 set "BROWSER_DEST=%INSTALL_DIR%\cc_browser"
 
-if exist "%BROWSER_SRC%\package.json" (
-    REM Install npm dependencies
+if exist "%BROWSER_SRC%\build.ps1" (
     pushd "%BROWSER_SRC%"
-    echo Installing npm dependencies...
-    call npm install --silent
-    if !errorlevel! neq 0 (
-        echo [FAIL] npm install failed for cc_browser
+    powershell -ExecutionPolicy Bypass -File build.ps1
+
+    if !errorlevel! equ 0 (
+        REM Create destination directory
+        if not exist "%BROWSER_DEST%" mkdir "%BROWSER_DEST%"
+        if not exist "%BROWSER_DEST%\src" mkdir "%BROWSER_DEST%\src"
+
+        REM Copy built files from dist
+        copy /Y "dist\package.json" "%BROWSER_DEST%\" >nul
+        copy /Y "dist\README.md" "%BROWSER_DEST%\" >nul
+        copy /Y "dist\src\*.mjs" "%BROWSER_DEST%\src\" >nul
+
+        REM Copy node_modules
+        if exist "%BROWSER_DEST%\node_modules" rmdir /S /Q "%BROWSER_DEST%\node_modules"
+        xcopy /E /I /Q /Y "dist\node_modules" "%BROWSER_DEST%\node_modules" >nul
+
+        REM Create launcher script in C:\cc_tools
+        echo @node "%%~dp0cc_browser\src\cli.mjs" %%*> "%INSTALL_DIR%\cc-browser.cmd"
+
+        echo [OK] cc_browser installed to %BROWSER_DEST%
+        set /a SUCCESS_COUNT+=1
+    ) else (
+        echo [FAIL] Build failed for cc_browser
         set "FAILED=!FAILED! cc_browser"
         set /a FAIL_COUNT+=1
-        popd
-        goto :summary
     )
     popd
-
-    REM Create destination directory
-    if not exist "%BROWSER_DEST%" mkdir "%BROWSER_DEST%"
-    if not exist "%BROWSER_DEST%\src" mkdir "%BROWSER_DEST%\src"
-
-    REM Copy source files
-    copy /Y "%BROWSER_SRC%\package.json" "%BROWSER_DEST%\" >nul
-    copy /Y "%BROWSER_SRC%\README.md" "%BROWSER_DEST%\" >nul
-    copy /Y "%BROWSER_SRC%\src\*.mjs" "%BROWSER_DEST%\src\" >nul
-
-    REM Copy node_modules
-    if exist "%BROWSER_DEST%\node_modules" rmdir /S /Q "%BROWSER_DEST%\node_modules"
-    xcopy /E /I /Q /Y "%BROWSER_SRC%\node_modules" "%BROWSER_DEST%\node_modules" >nul
-
-    REM Create launcher script in C:\cc_tools
-    echo @node "%%~dp0cc_browser\src\cli.mjs" %%*> "%INSTALL_DIR%\cc-browser.cmd"
-
-    echo [OK] cc_browser installed to %BROWSER_DEST%
-    set /a SUCCESS_COUNT+=1
 ) else (
-    echo [SKIP] cc_browser source not found
+    echo [SKIP] No build.ps1 found for cc_browser
+)
+
+REM ============================================
+REM .NET tools (cc_click, cc_trisight)
+REM ============================================
+echo.
+echo --------------------------------------------
+echo Building cc_click (.NET)...
+echo --------------------------------------------
+
+set "CCCLICK_SRC=%REPO_DIR%\src\cc_click"
+set "CCCLICK_DEST=%INSTALL_DIR%\cc_click"
+
+if exist "%CCCLICK_SRC%\cc_click.slnx" (
+    pushd "%CCCLICK_SRC%"
+    dotnet publish -c Release -o "%CCCLICK_DEST%"
+
+    if !errorlevel! equ 0 (
+        REM Create launcher script
+        echo @"%%~dp0cc_click\CcClick.exe" %%*> "%INSTALL_DIR%\cc_click.cmd"
+        echo [OK] cc_click installed to %CCCLICK_DEST%
+        set /a SUCCESS_COUNT+=1
+    ) else (
+        echo [FAIL] Build failed for cc_click
+        set "FAILED=!FAILED! cc_click"
+        set /a FAIL_COUNT+=1
+    )
+    popd
+) else (
+    echo [SKIP] No cc_click.slnx found
+)
+
+echo.
+echo --------------------------------------------
+echo Building cc_trisight (.NET)...
+echo --------------------------------------------
+
+set "TRISIGHT_SRC=%REPO_DIR%\src\cc_trisight"
+set "TRISIGHT_DEST=%INSTALL_DIR%\cc_trisight"
+
+if exist "%TRISIGHT_SRC%\cc_trisight.slnx" (
+    pushd "%TRISIGHT_SRC%"
+    dotnet publish -c Release -o "%TRISIGHT_DEST%"
+
+    if !errorlevel! equ 0 (
+        REM Create launcher script
+        echo @"%%~dp0cc_trisight\TrisightCli.exe" %%*> "%INSTALL_DIR%\cc_trisight.cmd"
+        echo [OK] cc_trisight installed to %TRISIGHT_DEST%
+        set /a SUCCESS_COUNT+=1
+    ) else (
+        echo [FAIL] Build failed for cc_trisight
+        set "FAILED=!FAILED! cc_trisight"
+        set /a FAIL_COUNT+=1
+    )
+    popd
+) else (
+    echo [SKIP] No cc_trisight.slnx found
+)
+
+REM ============================================
+REM Copy documentation
+REM ============================================
+echo.
+echo --------------------------------------------
+echo Copying documentation...
+echo --------------------------------------------
+
+if exist "%REPO_DIR%\docs\CC_TOOLS.md" (
+    copy /Y "%REPO_DIR%\docs\CC_TOOLS.md" "%INSTALL_DIR%\" >nul
+    echo [OK] CC_TOOLS.md copied to %INSTALL_DIR%
+) else (
+    echo [SKIP] docs\CC_TOOLS.md not found
 )
 
 :summary

@@ -5,7 +5,7 @@
 
 import { createServer } from 'http';
 import { parse as parseUrl } from 'url';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -30,6 +30,28 @@ function readProfileConfig(browser, profile) {
 
   const content = readFileSync(configPath, 'utf8');
   return JSON.parse(content);
+}
+
+// Resolve alias to browser+profile
+function resolveAlias(alias) {
+  const localAppData = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local');
+  const ccBrowserDir = join(localAppData, 'cc-browser');
+
+  if (!existsSync(ccBrowserDir)) return null;
+
+  const dirs = readdirSync(ccBrowserDir);
+  for (const dir of dirs) {
+    const configPath = join(ccBrowserDir, dir, 'profile.json');
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, 'utf8'));
+      if (config.aliases && config.aliases.includes(alias)) {
+        const [browser, ...profileParts] = dir.split('-');
+        const profile = profileParts.join('-');
+        return { browser, profile, config };
+      }
+    }
+  }
+  return null;
 }
 import { connectBrowser, disconnectBrowser, getCachedBrowser, getPageState } from './session.mjs';
 import {
@@ -691,6 +713,16 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === '--profile' && args[i + 1]) {
     defaultProfile = args[i + 1];
     i++;
+  }
+}
+
+// If profile is specified without browser, try to resolve as alias
+if (defaultProfile && !defaultBrowser) {
+  const resolved = resolveAlias(defaultProfile);
+  if (resolved) {
+    console.log(`[cc-browser] Alias "${defaultProfile}" resolved to ${resolved.browser}-${resolved.profile}`);
+    defaultBrowser = resolved.browser;
+    defaultProfile = resolved.profile;
   }
 }
 

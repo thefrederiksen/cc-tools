@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['D:/ReposFred/cc_tools/src/cc_gmail/src/cli.py'],
+    ['src\\cli.py'],
     pathex=[],
     binaries=[],
     datas=[],

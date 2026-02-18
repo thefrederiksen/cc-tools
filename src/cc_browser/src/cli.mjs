@@ -6,7 +6,7 @@
 import { spawn } from 'child_process';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -36,6 +36,28 @@ function readProfileConfig(browser, profile) {
   return JSON.parse(content);
 }
 
+// Resolve alias to browser+profile
+function resolveAlias(alias) {
+  const localAppData = process.env.LOCALAPPDATA || join(process.env.HOME || '', 'AppData', 'Local');
+  const ccBrowserDir = join(localAppData, 'cc-browser');
+
+  if (!existsSync(ccBrowserDir)) return null;
+
+  const dirs = readdirSync(ccBrowserDir);
+  for (const dir of dirs) {
+    const configPath = join(ccBrowserDir, dir, 'profile.json');
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, 'utf8'));
+      if (config.aliases && config.aliases.includes(alias)) {
+        const [browser, ...profileParts] = dir.split('-');
+        const profile = profileParts.join('-');
+        return { browser, profile, config };
+      }
+    }
+  }
+  return null;
+}
+
 // Get daemon port from profile.json or default
 function getDaemonPort(args) {
   // If port is explicitly provided, use it
@@ -53,6 +75,21 @@ function getDaemonPort(args) {
       return config.daemonPort;
     }
     console.error(`[DEBUG] No config or daemonPort found`);
+  } else if (args.profile && !args.browser) {
+    // Profile specified without browser - try to resolve as alias
+    console.error(`[DEBUG] Resolving alias: ${args.profile}`);
+    const resolved = resolveAlias(args.profile);
+    if (resolved) {
+      console.error(`[DEBUG] Alias resolved: ${resolved.browser}-${resolved.profile}`);
+      // Update args with resolved browser/profile for downstream use
+      args.browser = resolved.browser;
+      args.profile = resolved.profile;
+      if (resolved.config.daemonPort) {
+        console.error(`[DEBUG] Found daemonPort: ${resolved.config.daemonPort}`);
+        return resolved.config.daemonPort;
+      }
+    }
+    console.error(`[DEBUG] Alias not found: ${args.profile}`);
   } else {
     console.error(`[DEBUG] No browser/profile: browser=${args.browser}, profile=${args.profile}`);
   }
@@ -365,8 +402,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   navigate: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/navigate', {
-      browser: args.browser,
-      profile: args.profile,
       url: args.url,
       tab: args.tab,
       waitUntil: args.waitUntil,
@@ -379,8 +414,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   reload: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/reload', {
-      browser: args.browser,
-      profile: args.profile,
       tab: args.tab,
       waitUntil: args.waitUntil,
       timeout: args.timeout,
@@ -392,8 +425,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   back: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/back', {
-      browser: args.browser,
-      profile: args.profile,
       tab: args.tab,
     }, port);
     output(result);
@@ -403,8 +434,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   forward: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/forward', {
-      browser: args.browser,
-      profile: args.profile,
       tab: args.tab,
     }, port);
     output(result);
@@ -414,8 +443,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   snapshot: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/snapshot', {
-      browser: args.browser,
-      profile: args.profile,
       tab: args.tab,
       interactive: args.interactive,
       compact: args.compact,
@@ -429,8 +456,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   info: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/info', {
-      browser: args.browser,
-      profile: args.profile,
       tab: args.tab,
     }, port);
     output(result);
@@ -440,8 +465,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   click: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/click', {
-      browser: args.browser,
-      profile: args.profile,
       ref: args.ref,
       tab: args.tab,
       doubleClick: args.double || args.doubleClick,
@@ -456,8 +479,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   type: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/type', {
-      browser: args.browser,
-      profile: args.profile,
       ref: args.ref,
       text: args.text,
       tab: args.tab,
@@ -472,8 +493,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   press: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/press', {
-      browser: args.browser,
-      profile: args.profile,
       key: args.key,
       tab: args.tab,
       delay: args.delay,
@@ -485,8 +504,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   hover: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/hover', {
-      browser: args.browser,
-      profile: args.profile,
       ref: args.ref,
       tab: args.tab,
       timeout: args.timeout,
@@ -498,8 +515,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   drag: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/drag', {
-      browser: args.browser,
-      profile: args.profile,
       startRef: args.from || args.startRef,
       endRef: args.to || args.endRef,
       tab: args.tab,
@@ -512,8 +527,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   select: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/select', {
-      browser: args.browser,
-      profile: args.profile,
       ref: args.ref,
       values: args.values || args.value,
       tab: args.tab,
@@ -526,8 +539,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   scroll: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/scroll', {
-      browser: args.browser,
-      profile: args.profile,
       direction: args.direction,
       amount: args.amount,
       ref: args.ref,
@@ -541,8 +552,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   wait: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/wait', {
-      browser: args.browser,
-      profile: args.profile,
       time: args.time,
       text: args.text,
       textGone: args.textGone,
@@ -560,8 +569,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   evaluate: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/evaluate', {
-      browser: args.browser,
-      profile: args.profile,
       fn: args.js || args.fn || args.code,
       ref: args.ref,
       tab: args.tab,
@@ -573,8 +580,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   fill: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/fill', {
-      browser: args.browser,
-      profile: args.profile,
       fields: args.fields,
       tab: args.tab,
       timeout: args.timeout,
@@ -586,8 +591,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   screenshot: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/screenshot', {
-      browser: args.browser,
-      profile: args.profile,
       ref: args.ref,
       element: args.element,
       fullPage: args.fullPage,
@@ -601,8 +604,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   'screenshot-labels': async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/screenshot-labels', {
-      browser: args.browser,
-      profile: args.profile,
       maxLabels: args.maxLabels,
       type: args.type,
       tab: args.tab,
@@ -614,8 +615,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   upload: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/upload', {
-      browser: args.browser,
-      profile: args.profile,
       ref: args.ref,
       element: args.element,
       paths: args.paths || args.path,
@@ -628,8 +627,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   resize: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/resize', {
-      browser: args.browser,
-      profile: args.profile,
       width: args.width,
       height: args.height,
       tab: args.tab,
@@ -640,10 +637,7 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   // List tabs
   tabs: async (args) => {
     const port = getDaemonPort(args);
-    const result = await request('POST', '/tabs', {
-      browser: args.browser,
-      profile: args.profile,
-    }, port);
+    const result = await request('POST', '/tabs', {}, port);
     output(result);
   },
 
@@ -651,8 +645,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   'tabs-open': async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/tabs/open', {
-      browser: args.browser,
-      profile: args.profile,
       url: args.url,
     }, port);
     output(result);
@@ -662,8 +654,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   'tabs-close': async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/tabs/close', {
-      browser: args.browser,
-      profile: args.profile,
       tab: args.tab,
     }, port);
     output(result);
@@ -673,8 +663,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   'tabs-focus': async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/tabs/focus', {
-      browser: args.browser,
-      profile: args.profile,
       tab: args.tab,
     }, port);
     output(result);
@@ -684,8 +672,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   text: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/text', {
-      browser: args.browser,
-      profile: args.profile,
       selector: args.selector,
       tab: args.tab,
     }, port);
@@ -696,8 +682,6 @@ MULTI-PROFILE (SIMULTANEOUS BROWSERS):
   html: async (args) => {
     const port = getDaemonPort(args);
     const result = await request('POST', '/html', {
-      browser: args.browser,
-      profile: args.profile,
       selector: args.selector,
       outer: args.outer,
       tab: args.tab,

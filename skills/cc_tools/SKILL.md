@@ -10,13 +10,16 @@ A suite of command-line tools for document conversion, media processing, and AI-
 
 | Tool | Description | Status |
 |------|-------------|--------|
-| cc_markdown | Markdown to PDF/Word/HTML | Available |
-| cc_transcribe | Video/audio transcription | Available |
+| cc_crawl4ai | AI-ready web crawler | Available |
 | cc_gmail | Gmail CLI: read, send, search emails | Available |
 | cc_image | Image generation/analysis/OCR | Coming Soon |
+| cc_markdown | Markdown to PDF/Word/HTML | Available |
+| cc_outlook | Outlook CLI: read, send, search emails, calendar | Available |
+| cc_transcribe | Video/audio transcription | Available |
+| cc_video | Video utilities | Coming Soon |
 | cc_voice | Text-to-speech | Coming Soon |
 | cc_whisper | Audio transcription | Coming Soon |
-| cc_video | Video utilities | Coming Soon |
+| cc_youtube_info | YouTube transcript/metadata extraction | Available |
 
 ---
 
@@ -269,6 +272,169 @@ cc_gmail profile
 
 ---
 
+## cc_outlook
+
+Outlook CLI: read, send, search emails and manage calendar from the command line.
+Supports **multiple Outlook accounts** (personal and work).
+
+**Requirements:**
+- Azure App Registration with OAuth credentials
+
+### Setup
+
+```bash
+# 1. Create Azure App at https://portal.azure.com -> App registrations
+# 2. Add redirect URIs: http://localhost AND https://login.microsoftonline.com/common/oauth2/nativeclient
+# 3. Enable "Allow public client flows"
+# 4. Add API permissions: Mail.ReadWrite, Mail.Send, Calendars.ReadWrite, User.Read
+
+# Add account with your Client ID
+cc_outlook accounts add your@email.com --client-id YOUR_CLIENT_ID
+
+# Authenticate (browser opens, copy URL back when you see "not the right page")
+cc_outlook auth
+```
+
+### Usage
+
+```bash
+# List inbox
+cc_outlook list
+
+# List sent/drafts/unread
+cc_outlook list -f sent
+cc_outlook list --unread
+
+# Read email
+cc_outlook read <message_id>
+
+# Send email
+cc_outlook send -t "to@example.com" -s "Subject" -b "Body text"
+
+# Send with attachments
+cc_outlook send -t "to@example.com" -s "Report" -b "See attached" --attach report.pdf
+
+# Search
+cc_outlook search "project update"
+
+# Calendar events (next 7 days)
+cc_outlook calendar events
+
+# Calendar events (next 14 days)
+cc_outlook calendar events -d 14
+
+# Create calendar event
+cc_outlook calendar create -s "Meeting" -d 2024-12-25 -t 14:00
+
+# Show profile
+cc_outlook profile
+
+# Multiple accounts
+cc_outlook accounts list
+cc_outlook -a work list
+```
+
+---
+
+## cc_youtube_info
+
+Extract transcripts, metadata, chapters, and information from YouTube videos.
+
+### Usage
+
+```bash
+# Get video metadata
+cc_youtube_info info "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Download transcript
+cc_youtube_info transcript "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Save transcript to file
+cc_youtube_info transcript URL -o transcript.txt
+
+# Download as SRT subtitles
+cc_youtube_info transcript URL --format srt -o captions.srt
+
+# List available languages
+cc_youtube_info languages URL
+
+# Get chapters
+cc_youtube_info chapters URL
+
+# Output as JSON
+cc_youtube_info info URL --json
+cc_youtube_info transcript URL --json
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output` | Output file path |
+| `-l, --lang` | Language code (default: en) |
+| `-f, --format` | Output format: txt, srt, vtt |
+| `-p, --paragraphs` | Format as paragraphs (txt only) |
+| `--json` | Output as JSON |
+| `--auto-only` | Use only auto-generated captions |
+| `--no-timestamps` | Remove timestamps (txt only) |
+
+---
+
+## cc_crawl4ai
+
+AI-ready web crawler: crawl pages to clean markdown for LLM/RAG workflows.
+
+### Usage
+
+```bash
+# Crawl a single URL
+cc_crawl4ai crawl "https://example.com"
+
+# Save to file
+cc_crawl4ai crawl URL -o page.md
+
+# Use fit markdown (noise filtered)
+cc_crawl4ai crawl URL --fit
+
+# Batch crawl from URL list
+cc_crawl4ai batch urls.txt -o ./output/
+
+# Stealth mode (evade bot detection)
+cc_crawl4ai crawl URL --stealth
+
+# Wait for dynamic content
+cc_crawl4ai crawl URL --wait-for ".content-loaded"
+
+# Scroll full page (for infinite scroll)
+cc_crawl4ai crawl URL --scroll
+
+# Extract specific CSS selector
+cc_crawl4ai crawl URL --css "article.main"
+
+# Take screenshot
+cc_crawl4ai crawl URL --screenshot
+
+# Session management (for authenticated crawling)
+cc_crawl4ai session create mysite -u "https://example.com/login" --interactive
+cc_crawl4ai crawl URL --session mysite
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output` | Output file path |
+| `-f, --format` | Output format: markdown, json, html, raw |
+| `--fit` | Use fit markdown (noise filtered) |
+| `--stealth` | Enable stealth mode |
+| `--wait-for` | CSS selector to wait for |
+| `--scroll` | Scroll full page |
+| `--css` | CSS selector for extraction |
+| `--screenshot` | Capture screenshot |
+| `-s, --session` | Use saved session |
+
+---
+
 ## Installation
 
 ### Quick Install (Recommended)
@@ -282,18 +448,25 @@ Download and run the setup executable:
 ### Manual Install
 
 Download individual tools from [GitHub Releases](https://github.com/CenterConsulting/cc_tools/releases):
-- `cc_markdown-windows-x64.exe`
-- `cc_transcribe-windows-x64.exe`
+- `cc_crawl4ai.exe`
+- `cc_gmail.exe`
+- `cc_markdown.exe`
+- `cc_outlook.exe`
+- `cc_transcribe.exe`
+- `cc_youtube_info.exe`
 
-Place in a directory in your PATH.
+Place in a directory in your PATH (e.g., `C:\cc_tools`).
 
 ---
 
 ## Requirements
 
-- **cc_markdown:** Chrome/Chromium for PDF generation (auto-detected)
-- **cc_transcribe:** FFmpeg + OpenAI API key
+- **cc_crawl4ai:** Playwright browsers (`playwright install chromium`)
 - **cc_gmail:** OAuth credentials from Google Cloud Console
+- **cc_markdown:** Chrome/Chromium for PDF generation (auto-detected)
+- **cc_outlook:** Azure App Registration with OAuth credentials
+- **cc_transcribe:** FFmpeg + OpenAI API key
+- **cc_youtube_info:** No special requirements
 
 Set API key:
 ```bash

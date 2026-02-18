@@ -46,14 +46,19 @@ echo.
 echo Available tools:
 echo.
 echo Python tools (compiled executables):
+if exist "%INSTALL_DIR%\cc_crawl4ai.exe" echo   - cc_crawl4ai
 if exist "%INSTALL_DIR%\cc_gmail.exe" echo   - cc_gmail
 if exist "%INSTALL_DIR%\cc_image.exe" echo   - cc_image
+if exist "%INSTALL_DIR%\cc_linkedin.exe" echo   - cc_linkedin
 if exist "%INSTALL_DIR%\cc_markdown.exe" echo   - cc_markdown
-if exist "%INSTALL_DIR%\cc_setup.exe" echo   - cc_setup
+if exist "%INSTALL_DIR%\cc_outlook.exe" echo   - cc_outlook
+if exist "%INSTALL_DIR%\cc_reddit.exe" echo   - cc_reddit
+if exist "%INSTALL_DIR%\cc-tools-setup.exe" echo   - cc-tools-setup
 if exist "%INSTALL_DIR%\cc_transcribe.exe" echo   - cc_transcribe
 if exist "%INSTALL_DIR%\cc_video.exe" echo   - cc_video
 if exist "%INSTALL_DIR%\cc_voice.exe" echo   - cc_voice
 if exist "%INSTALL_DIR%\cc_whisper.exe" echo   - cc_whisper
+if exist "%INSTALL_DIR%\cc_youtube_info.exe" echo   - cc_youtube_info
 echo.
 echo Node.js tools:
 if exist "%INSTALL_DIR%\cc-browser.cmd" echo   - cc-browser

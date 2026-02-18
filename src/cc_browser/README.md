@@ -55,8 +55,11 @@ node src/cli.mjs stop                            # Close browser
 |---------|-------------|
 | `browsers` | List available browsers |
 | `profiles [--browser edge]` | List Chrome/Edge profiles with emails |
+| `favorites --profile work` | Get favorites from profile.json |
 | `start [--headless]` | Launch with isolated profile |
 | `start --browser edge` | Launch Edge instead of Chrome |
+| `start --browser edge --profile work` | Launch Edge with named profile |
+| `start --browser chrome --profile personal` | Launch Chrome with named profile |
 | `start --profileDir "Profile 1"` | Use existing Chrome profile (requires Chrome closed) |
 | `stop` | Close browser |
 
@@ -149,12 +152,95 @@ cc-browser/
   cc-browser.cmd      # Windows launcher
 ```
 
+## Profile Configuration
+
+Profiles provide isolated browser sessions with persistent logins. Each profile has its own data directory and port configuration.
+
+### Profile Location
+
+```
+%LOCALAPPDATA%\cc-browser\{browser}-{profile}\profile.json
+```
+
+### Configured Profiles
+
+| Profile | Browser | Daemon Port | CDP Port | Purpose |
+|---------|---------|-------------|----------|---------|
+| edge-work | Edge | 9280 | 9222 | example work accounts |
+| chrome-work | Chrome | 9281 | 9223 | Work accounts with LastPass |
+| chrome-personal | Chrome | 9282 | 9224 | Personal accounts with LastPass |
+
+### Profile JSON Structure
+
+```json
+{
+  "name": "Edge Work",
+  "browser": "edge",
+  "cdpPort": 9222,
+  "daemonPort": 9280,
+  "purpose": "example work accounts",
+  "favorites": ["https://www.examplestudio.com"],
+  "accounts": ["example"]
+}
+```
+
+### Multi-Profile Usage
+
+Run multiple browser profiles simultaneously, each on its own ports:
+
+```bash
+# Start daemons (each in separate terminal)
+cc-browser daemon --browser edge --profile work         # Port 9280
+cc-browser daemon --browser chrome --profile work       # Port 9281
+cc-browser daemon --browser chrome --profile personal   # Port 9282
+
+# Commands auto-detect daemon port from profile.json
+cc-browser start --browser edge --profile work
+cc-browser start --browser chrome --profile work
+cc-browser start --browser chrome --profile personal
+```
+
+### How It Works
+
+1. **Daemon reads profile config** - Uses `daemonPort` and `cdpPort` from profile.json
+2. **CLI auto-discovers daemon port** - Reads profile.json to find which port the daemon is on
+3. **No explicit --port flag needed** - Just specify `--browser` and `--profile`
+
+### Creating a New Profile
+
+1. Create the profile directory:
+   ```bash
+   mkdir %LOCALAPPDATA%\cc-browser\chrome-test
+   ```
+
+2. Create profile.json with unique ports:
+   ```json
+   {
+     "name": "Chrome Test",
+     "browser": "chrome",
+     "cdpPort": 9225,
+     "daemonPort": 9283,
+     "purpose": "Testing",
+     "favorites": [],
+     "accounts": []
+   }
+   ```
+
+3. Start the daemon:
+   ```bash
+   cc-browser daemon --browser chrome --profile test
+   ```
+
 ## Ports
 
 | Port | Purpose |
 |------|---------|
-| 9280 | Daemon HTTP API |
-| 9222 | Chrome CDP |
+| 9280 | Daemon HTTP API (edge-work) |
+| 9281 | Daemon HTTP API (chrome-work) |
+| 9282 | Daemon HTTP API (chrome-personal) |
+| 9222 | Chrome CDP (edge-work) |
+| 9223 | Chrome CDP (chrome-work) |
+| 9224 | Chrome CDP (chrome-personal) |
 
 ## Comparison to MCP
 

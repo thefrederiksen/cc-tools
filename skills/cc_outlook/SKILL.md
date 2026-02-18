@@ -38,10 +38,6 @@ During `cc_outlook auth`:
 3. **Copy the ENTIRE URL** from the browser address bar
 4. **Paste it into the terminal** and press Enter
 
-### Known Working Client ID
-
-For example accounts: `YOUR_CLIENT_ID`
-
 ---
 
 ## Quick Reference

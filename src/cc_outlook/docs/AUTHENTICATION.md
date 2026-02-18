@@ -2,326 +2,221 @@
 
 ## Overview
 
-cc_outlook uses Microsoft Graph API with OAuth 2.0 Device Code Flow authentication.
-This is the most reliable authentication method for CLI applications - no browser redirects needed.
+cc_outlook uses **MSAL Device Code Flow** for authentication with Microsoft 365 / Outlook accounts. This is Microsoft's recommended authentication method for CLI applications.
 
-**Technical Implementation Details:** See [IMPLEMENTATION_NOTES.md](IMPLEMENTATION_NOTES.md) for full technical documentation of how this works internally.
+## Why Device Code Flow?
 
-## Quick Reference
+Browser-based OAuth redirect flows have issues in CLI applications:
+- OAuth state mismatches when SSO sessions exist in the browser
+- Redirect URI handling problems
+- "wrongplace" redirect errors
+- MFA complications
 
-Already set up? Here are the common commands:
+Device Code Flow solves all these by separating browser authentication from the CLI.
 
-```bash
-cc_outlook list                     # List inbox emails
-cc_outlook list --unread            # List unread emails only
-cc_outlook calendar events          # View calendar for next 7 days
-cc_outlook folders                  # List mail folders
-cc_outlook send -t email@example.com -s "Hi" -b "Hello"
-cc_outlook auth                     # Re-authenticate if needed
-```
+## How It Works
 
----
-
-## Part 1: Azure App Registration (One-Time Setup)
-
-You only need to do this ONCE. The same app registration works for multiple email accounts.
-
-### Step 1: Open Azure Portal
-
-1. Go to **https://portal.azure.com**
-2. Sign in with your Microsoft account
-
-### Step 2: Navigate to App Registrations
-
-1. In the **search bar at the top**, type: `App registrations`
-2. Click on **App registrations** in the results
-3. Click **+ New registration**
-
-### Step 3: Fill in the Registration Form
-
-| Field | Value |
-|-------|-------|
-| **Name** | `cc_outlook_cli` |
-| **Supported account types** | Select: **Accounts in any organizational directory and personal Microsoft accounts** |
-
-**Redirect URI:**
-
-| Field | Value |
-|-------|-------|
-| **Platform** | Select: **Mobile and desktop applications** |
-| **URI** | Enter: `https://login.microsoftonline.com/common/oauth2/nativeclient` |
-
-Click **Register**
-
-### Step 4: Copy the Application (Client) ID
-
-After registration, you'll see the app overview page.
-
-1. Find **Application (client) ID** in the Essentials section
-2. **Copy this value** - you'll need it later
-3. It looks like: `YOUR_CLIENT_ID`
-
-### Step 5: Add API Permissions
-
-1. In the left menu, click **API permissions**
-2. Click **+ Add a permission**
-3. Click **Microsoft Graph**
-4. Click **Delegated permissions**
-5. Search and **check** each of these (one at a time):
-   - `Mail.ReadWrite`
-   - `Mail.Send`
-   - `Calendars.ReadWrite`
-   - `User.Read`
-   - `MailboxSettings.Read`
-6. Click **Add permissions**
-
-Your permissions list should show:
-
-```
-Microsoft Graph (5)
-  Calendars.ReadWrite      Delegated    No
-  Mail.ReadWrite           Delegated    No
-  Mail.Send                Delegated    No
-  MailboxSettings.Read     Delegated    No
-  User.Read                Delegated    No
-```
-
-### Step 6: Enable Public Client Flow
-
-1. In the left menu, click **Authentication**
-2. Scroll down to **Advanced settings**
-3. Find **Allow public client flows**
-4. Set it to **Yes** (toggle should be enabled)
-5. Click **Save**
+1. Run `cc_outlook auth`
+2. CLI displays a code and URL
+3. Open https://microsoft.com/devicelogin in any browser
+4. Enter the code
+5. Sign in with your Microsoft account
+6. Complete MFA if prompted
+7. Return to terminal - authentication completes automatically
 
 ---
 
-## Part 2: Connect Your Account
+## Setup
 
-### Add an Account
+### Step 1: Create Azure App Registration
+
+1. Go to [Azure Portal](https://portal.azure.com) -> Azure Active Directory -> App registrations
+2. Click "New registration"
+3. Configure:
+   - **Name:** `cc_outlook_cli` (or your preferred name)
+   - **Supported account types:** "Accounts in any organizational directory and personal Microsoft accounts"
+   - **Redirect URI:**
+     - Platform: "Mobile and desktop applications"
+     - URI: `https://login.microsoftonline.com/common/oauth2/nativeclient`
+4. Click "Register"
+5. Copy the **Application (client) ID** - you'll need this
+
+### Step 2: Enable Public Client Flow (CRITICAL)
+
+This setting is **required** for Device Code Flow:
+
+1. In your app registration, go to "Authentication"
+2. Scroll to "Advanced settings"
+3. Set "Allow public client flows" to **Yes**
+4. Click "Save"
+
+Without this, you'll get: `Failed to create device flow`
+
+### Step 3: Configure API Permissions
+
+1. Go to "API permissions"
+2. Click "Add a permission" -> "Microsoft Graph" -> "Delegated permissions"
+3. Add these permissions:
+
+| Permission | Purpose |
+|------------|---------|
+| `Mail.ReadWrite` | Read and write emails |
+| `Mail.Send` | Send emails |
+| `Calendars.ReadWrite` | Read and write calendar events |
+| `User.Read` | Read user profile |
+| `MailboxSettings.Read` | Read mailbox settings |
+
+4. Click "Add permissions"
+
+These are delegated permissions and don't require admin consent.
+
+### Step 4: Add Account to cc_outlook
 
 ```bash
-cc_outlook accounts add YOUR_EMAIL --client-id YOUR_CLIENT_ID
+cc_outlook accounts add your.email@domain.com --client-id YOUR_CLIENT_ID
 ```
 
-Example:
-```bash
-cc_outlook accounts add user@example.com --client-id YOUR_CLIENT_ID
-```
-
-### Authenticate
+### Step 5: Authenticate
 
 ```bash
 cc_outlook auth
 ```
 
-### The Device Code Flow
-
-Device Code Flow is simple and reliable:
-
-1. Run `cc_outlook auth`
-2. A code and URL are displayed:
-   ```
-   ============================================================
-   DEVICE CODE AUTHENTICATION
-   ============================================================
-
-   To sign in, use a web browser to open the page https://microsoft.com/devicelogin
-   and enter the code XXXXXXXXX to authenticate.
-
-   ============================================================
-   ```
-3. Open **https://microsoft.com/devicelogin** in any browser
-4. Enter the code shown
-5. Sign in with your Microsoft account
-6. Accept the permissions when prompted
-7. The CLI automatically completes authentication
-
-You should see:
+You'll see:
 ```
-[green]Authenticated as:[/green] your.email@domain.com
+============================================================
+DEVICE CODE AUTHENTICATION
+============================================================
+
+To sign in, use a web browser to open the page https://microsoft.com/devicelogin
+and enter the code XXXXXXXXX to authenticate.
+
+============================================================
 ```
 
-**Why Device Code Flow?**
-- No browser redirect issues
-- No "wrongplace" errors
-- Works even if the browser is on a different device
-- No URL copying/pasting required
+1. Go to https://microsoft.com/devicelogin
+2. Enter the code
+3. Sign in and accept permissions
+4. Terminal shows "Authenticated as: your.email@domain.com"
 
 ---
 
-## Part 3: Using cc_outlook
+## Commands
 
-### Email Commands
+### Authentication
 
 ```bash
-# List emails
-cc_outlook list                    # List inbox (default 10)
-cc_outlook list -n 20              # List 20 messages
-cc_outlook list -f sent            # List sent mail
-cc_outlook list --unread           # Show unread only
-
-# Read email
-cc_outlook read <message_id>       # Read full email
-
-# Send email
-cc_outlook send -t "to@example.com" -s "Subject" -b "Body text"
-cc_outlook send -t "to@example.com" -s "Subject" -f body.txt
-cc_outlook send -t "to@example.com" -s "Report" -b "See attached" --attach report.pdf
-
-# Create draft
-cc_outlook draft -t "to@example.com" -s "Subject" -b "Draft body"
-
-# Search
-cc_outlook search "quarterly report"
-cc_outlook search "from:sender" -n 20
-
-# Delete
-cc_outlook delete <message_id>             # Delete message
-cc_outlook delete <message_id> -y          # Skip confirmation
+cc_outlook auth                # Authenticate (uses cached token if valid)
+cc_outlook auth --force        # Force re-authentication
+cc_outlook profile             # Show current account info
+cc_outlook accounts list       # List all configured accounts
 ```
 
-### Calendar Commands
+### Email
 
 ```bash
-# List calendars
-cc_outlook calendar list
-
-# View events
-cc_outlook calendar events         # Next 7 days
-cc_outlook calendar events -d 14   # Next 14 days
-cc_outlook calendar events -c "Work Calendar"
-
-# Create event
-cc_outlook calendar create -s "Meeting" -d 2024-12-25 -t 14:00
-cc_outlook calendar create -s "Meeting" -d 2024-12-25 -t 14:00 --duration 90
-cc_outlook calendar create -s "Meeting" -d 2024-12-25 -t 14:00 -l "Room A"
-cc_outlook calendar create -s "Meeting" -d 2024-12-25 -t 14:00 --attendees "a@x.com,b@x.com"
+cc_outlook list                # List inbox (default 10)
+cc_outlook list -n 25          # List 25 messages
+cc_outlook list --unread       # Unread only
+cc_outlook read MESSAGE_ID     # Read specific email
+cc_outlook search "keyword"    # Search emails
+cc_outlook send -t "to@email.com" -s "Subject" -b "Body"
+cc_outlook draft -t "to@email.com" -s "Subject" -b "Body"
 ```
 
-### Multiple Accounts
+### Calendar
 
 ```bash
-# List accounts
-cc_outlook accounts list
-
-# Add another account (same client ID works)
-cc_outlook accounts add another@email.com --client-id YOUR_CLIENT_ID
-
-# Set default
-cc_outlook accounts default another@email.com
-
-# Use specific account
-cc_outlook -a personal list
-cc_outlook --account work send -t "to@example.com" -s "Subject" -b "Body"
+cc_outlook calendar events           # Next 7 days
+cc_outlook calendar events -d 14     # Next 14 days
 ```
 
 ---
 
-## Part 4: Troubleshooting
+## Token Storage
 
-### Error: "Failed to create device flow"
+Tokens are stored locally:
+- **Windows:** `%USERPROFILE%\.cc_outlook\tokens\`
+- **Linux/Mac:** `~/.cc_outlook/tokens/`
 
-**Cause:** The Azure app may not have public client flow enabled.
+Token files contain:
+- Access tokens (expire in ~1 hour, auto-refreshed by MSAL)
+- Refresh tokens (expire after ~90 days of inactivity)
 
-**Solution:**
-1. Go to Azure Portal -> App registrations -> your app -> Authentication
-2. Under "Advanced settings", set "Allow public client flows" to **Yes**
-3. Click Save
+---
 
-### Error: AADSTS65001 - User has not consented
+## Troubleshooting
 
-**Cause:** Permissions not accepted.
+### "Failed to create device flow"
 
-**Solution:**
-1. Re-run `cc_outlook auth --force`
-2. Make sure to click "Accept" on the consent screen at microsoft.com/devicelogin
+**Cause:** Azure app doesn't have public client flow enabled.
+
+**Fix:** Azure Portal -> App registrations -> your app -> Authentication -> "Allow public client flows" = **Yes**
 
 ### Device code expired
 
-The device code is valid for about 15 minutes. If you see an expiration error:
+Codes are valid for ~15 minutes.
 
-**Solution:**
-1. Run `cc_outlook auth` again to get a fresh code
-2. Complete the authentication faster
+**Fix:** Run `cc_outlook auth` again for a fresh code.
 
-### Token expired / Authentication required again
+### "Token is expired" or "Oauth Token is expired"
 
-Tokens expire after ~90 days of inactivity.
+Refresh token expired (90+ days without use).
 
-**Solution:**
-```bash
-# Revoke and re-authenticate
-cc_outlook auth --revoke
-cc_outlook auth
-```
+**Fix:** `cc_outlook auth --force`
 
-Or force re-authentication:
-```bash
-cc_outlook auth --force
-```
+### MFA prompt appears
 
-### Error: Account not found
-
-**Solution:**
-```bash
-# List accounts to see what's configured
-cc_outlook accounts list
-
-# Add the account if missing
-cc_outlook accounts add your@email.com --client-id YOUR_CLIENT_ID
-```
+This is normal. Complete MFA in the browser. The CLI detects completion automatically.
 
 ---
 
-## Part 5: File Locations
+## Technical Details
 
-| Item | Location |
-|------|----------|
-| Profiles | `%USERPROFILE%\.cc_outlook\profiles.json` |
-| Token Cache | `%USERPROFILE%\.cc_outlook\tokens\` |
+### MSAL Integration
+
+cc_outlook uses Microsoft's MSAL (Microsoft Authentication Library):
+
+- `acquire_token_silent()` handles automatic token refresh
+- `SerializableTokenCache` persists tokens between sessions
+- Device Code Flow handles initial authentication
+
+### Token Backend
+
+The `MSALTokenBackend` class bridges MSAL tokens to the O365 Python library by overriding key methods:
+
+| Method | Purpose |
+|--------|---------|
+| `load_token()` | Gets fresh token from MSAL |
+| `token_is_expired()` | Returns False (MSAL handles expiration) |
+| `should_refresh_token()` | Returns False (prevents O365 refresh) |
+| `get_access_token()` | Returns `{'secret': token}` format |
+
+This ensures all token refresh is handled by MSAL, not O365's internal mechanisms.
+
+### Reserved Scopes
+
+Do **not** include these in your scopes list - MSAL handles them automatically:
+- `offline_access`
+- `openid`
+- `profile`
+
+Including them causes: `Configuration error: reserved scope`
 
 ---
 
-## Part 6: Azure App Settings Summary
-
-For reference, here are all the Azure app settings needed:
-
-### App Registration
+## Azure App Settings Summary
 
 | Setting | Value |
 |---------|-------|
-| Name | `cc_outlook_cli` |
 | Supported account types | Accounts in any organizational directory and personal Microsoft accounts |
+| Redirect URI (Mobile/desktop) | `https://login.microsoftonline.com/common/oauth2/nativeclient` |
+| Allow public client flows | **Yes** |
 
-### Redirect URI (Mobile and desktop applications)
+### Required Permissions (Delegated)
 
-```
-https://login.microsoftonline.com/common/oauth2/nativeclient
-```
-
-### API Permissions (Microsoft Graph - Delegated)
-
-| Permission | Description |
-|------------|-------------|
-| Mail.ReadWrite | Read and write mail |
-| Mail.Send | Send mail |
-| Calendars.ReadWrite | Read and write calendars |
-| User.Read | Read user profile |
-| MailboxSettings.Read | Read mailbox settings |
-
-### Authentication Settings
-
-| Setting | Value |
-|---------|-------|
-| Allow public client flows | **Yes** (Enabled) |
-
----
-
-## Appendix: Known Working Client IDs
-
-| Account Type | Client ID |
-|--------------|-----------|
-| example (multi-tenant) | `YOUR_CLIENT_ID` |
-
-The same Client ID can be used for multiple accounts if the app is registered as multi-tenant.
+- `Mail.ReadWrite`
+- `Mail.Send`
+- `Calendars.ReadWrite`
+- `User.Read`
+- `MailboxSettings.Read`

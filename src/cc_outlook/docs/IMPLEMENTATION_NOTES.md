@@ -1,22 +1,20 @@
 # cc_outlook MSAL Device Code Flow Implementation
 
-## Date: February 18, 2026
-
 ## Overview
 
-This document describes the authentication implementation for cc_outlook using MSAL (Microsoft Authentication Library) with Device Code Flow. This replaces the previous browser-based OAuth flow which had persistent issues.
+This document describes the authentication implementation for cc_outlook using MSAL (Microsoft Authentication Library) with Device Code Flow.
 
 ---
 
 ## The Problem
 
-The original O365 library authentication used browser-based OAuth with redirect URIs. This consistently failed with:
+The O365 library's browser-based OAuth with redirect URIs consistently failed with:
 
 1. **"wrongplace" redirect errors** - OAuth state mismatch when browser has cached SSO sessions
 2. **State mismatch issues** - Browser automation made it worse
-3. **MFA complications** - Multi-factor auth added additional redirect complexity
+3. **MFA complications** - Multi-factor auth added redirect complexity
 
-After 5 days of troubleshooting, we determined the browser redirect approach was fundamentally unreliable for CLI applications.
+Browser redirect OAuth is fundamentally unreliable for CLI applications.
 
 ---
 
@@ -43,18 +41,16 @@ Device Code Flow is Microsoft's recommended authentication method for CLI/deskto
 
 ## Implementation Details
 
-### Files Modified
+### Files
 
 | File | Purpose |
 |------|---------|
 | `src/auth.py` | Core authentication logic with MSAL |
 | `src/cli.py` | CLI command updates |
 | `requirements.txt` | Added `msal>=1.20.0` |
-| `cc_outlook.spec` | PyInstaller config for rich unicode data |
+| `cc_outlook.spec` | PyInstaller config |
 
-### Key Components in auth.py
-
-#### 1. MSALTokenBackend Class (lines 33-107)
+### MSALTokenBackend Class
 
 Custom token backend that bridges MSAL tokens to O365 library.
 
@@ -66,36 +62,28 @@ class MSALTokenBackend(BaseTokenBackend):
 - Loads tokens from MSAL's SerializableTokenCache
 - Converts MSAL token format to O365 expected format
 - Handles automatic token refresh via `acquire_token_silent()`
+- Intercepts O365's internal token checking
 
 **Token Storage:**
 - Path: `~/.cc_outlook/tokens/{email}_msal.json`
-- Format: MSAL's SerializableTokenCache JSON format (~13KB)
+- Format: MSAL's SerializableTokenCache JSON (~13KB)
 
-#### 2. authenticate_device_code_with_cache() Function (lines 113-189)
+### Critical Method Overrides
 
-Main authentication function.
+| Method | Purpose |
+|--------|---------|
+| `load_token()` | Returns token dict with access_token from MSAL |
+| `token_is_expired()` | Always returns False - MSAL handles expiration |
+| `should_refresh_token()` | Always returns False - prevents O365 refresh attempts |
+| `get_access_token()` | Returns `{'secret': access_token}` - format O365 expects |
+| `check_token()` | Calls load_token() to verify MSAL can provide token |
 
-```python
-def authenticate_device_code_with_cache(client_id, token_path, scopes, force):
-```
+**Why these overrides are necessary:**
+- O365's `Connection.get_session()` expects `get_access_token()` to return a dict with `'secret'` key
+- O365's internal caching checks `token_is_expired()` before API calls
+- Without these overrides, O365 tries to refresh using its own mechanism, which fails
 
-**Flow:**
-1. Load existing token cache (if not forcing)
-2. Try silent token refresh first
-3. If silent fails, initiate device code flow
-4. Display code and URL to user
-5. Poll until user completes auth
-6. Save token cache to file
-
-#### 3. authenticate() Function (lines 460-526)
-
-Entry point called by CLI.
-
-```python
-def authenticate(account_name, force=False):
-```
-
-**CRITICAL WORKAROUND (lines 519-526):**
+### The is_authenticated Workaround
 
 ```python
 if account.is_authenticated:
@@ -103,57 +91,14 @@ if account.is_authenticated:
 else:
     # Even if O365 says not authenticated, if we have a token, try anyway
     if result and 'access_token' in result:
-        print("DEBUG: Forcing return since we have a token from MSAL")
         return account
 ```
 
-**Why this workaround exists:**
-- O365's `Account.is_authenticated` property checks token format
+**Why this exists:**
+- O365's `Account.is_authenticated` checks token format
 - MSAL tokens have a different format than O365 expects
 - `is_authenticated` returns `False` even with valid MSAL tokens
-- BUT: `MSALTokenBackend.load_token()` converts to correct format for API calls
-- So we ignore `is_authenticated=False` and return the account anyway
-- This works because actual API calls go through `load_token()` which converts properly
-
-### Debug Statements
-
-The code includes DEBUG print statements that show:
-```
-DEBUG: Token acquired: True
-DEBUG: Token file exists: True
-DEBUG: Token file size: 13400 bytes
-DEBUG: Token backend returned: True
-DEBUG: Token has access_token: True
-DEBUG: account.is_authenticated = False
-DEBUG: Forcing return since we have a token from MSAL
-```
-
-These are intentionally left in for troubleshooting.
-
----
-
-## Azure App Configuration
-
-### Required Settings
-
-| Setting | Value |
-|---------|-------|
-| App Name | `cc_outlook_cli` |
-| Account Types | Accounts in any organizational directory and personal Microsoft accounts |
-| Redirect URI | `https://login.microsoftonline.com/common/oauth2/nativeclient` (Mobile/desktop) |
-| Allow public client flows | **Yes** (CRITICAL) |
-
-### Required API Permissions (Delegated)
-
-- `Mail.ReadWrite`
-- `Mail.Send`
-- `Calendars.ReadWrite`
-- `User.Read`
-- `MailboxSettings.Read`
-
-### Known Working Client ID
-
-- example: `YOUR_CLIENT_ID`
+- BUT: Actual API calls work because they go through `load_token()` which returns correct format
 
 ---
 
@@ -218,6 +163,37 @@ User runs: cc_outlook auth
 
 ---
 
+## Azure App Configuration
+
+### Required Settings
+
+| Setting | Value |
+|---------|-------|
+| Account Types | Accounts in any organizational directory and personal Microsoft accounts |
+| Redirect URI | `https://login.microsoftonline.com/common/oauth2/nativeclient` (Mobile/desktop) |
+| Allow public client flows | **Yes** (CRITICAL) |
+
+### Required API Permissions (Delegated)
+
+- `Mail.ReadWrite`
+- `Mail.Send`
+- `Calendars.ReadWrite`
+- `User.Read`
+- `MailboxSettings.Read`
+
+---
+
+## Reserved Scopes
+
+MSAL automatically handles certain scopes. Do NOT include these in your scopes list:
+- `offline_access`
+- `openid`
+- `profile`
+
+Including them causes: `Configuration error: You cannot use any scope value that is reserved`
+
+---
+
 ## Troubleshooting
 
 ### "Failed to create device flow"
@@ -228,7 +204,7 @@ User runs: cc_outlook auth
 
 ### Device code expired
 
-**Cause:** Code is valid ~15 minutes. User took too long.
+**Cause:** Code is valid ~15 minutes.
 
 **Fix:** Run `cc_outlook auth` again for fresh code.
 
@@ -238,45 +214,47 @@ User runs: cc_outlook auth
 
 **Fix:** `cc_outlook auth --force`
 
+### "string indices must be integers" error
+
+**Cause:** `get_access_token()` returned a string instead of dict.
+
+**Fix:** Must return `{'secret': access_token_string}`
+
 ### MFA screen appears
 
 **This is normal.** Complete MFA in browser. CLI will detect completion automatically.
 
 ---
 
-## Build and Deploy
+## Build
 
-```powershell
-cd D:\ReposFred\cc_tools\src\cc_outlook
-.\build.ps1
-copy dist\cc_outlook.exe C:\cc-tools\
+```bash
+cd src/cc_outlook
+./build.ps1   # Windows
+./build.sh    # Linux/Mac
 ```
 
 ### PyInstaller Note
 
-The `cc_outlook.spec` file includes:
+The `cc_outlook.spec` includes:
 ```python
 datas=collect_data_files('rich'),
 hiddenimports=[...] + collect_submodules('rich._unicode_data'),
 ```
 
-This is required because rich library has unicode data files that PyInstaller doesn't find automatically.
+Required because rich library has unicode data files that PyInstaller doesn't find automatically.
+
+Also add `flush=True` to print statements for immediate output in PyInstaller builds:
+```python
+print(flow["message"], flush=True)
+```
 
 ---
 
-## Files and Locations
+## File Locations
 
 | Item | Path |
 |------|------|
-| Executable | `C:\cc-tools\cc_outlook.exe` |
-| Source | `D:\ReposFred\cc_tools\src\cc_outlook\` |
-| Config dir | `%USERPROFILE%\.cc_outlook\` |
-| Profiles | `%USERPROFILE%\.cc_outlook\profiles.json` |
-| Token cache | `%USERPROFILE%\.cc_outlook\tokens\{email}_msal.json` |
-| Auth batch file | `C:\cc-tools\cc_outlook_auth.bat` |
-
----
-
-## Version History
-
-- **Feb 18, 2026**: Implemented MSAL Device Code Flow, replacing broken browser OAuth
+| Config dir | `~/.cc_outlook/` |
+| Profiles | `~/.cc_outlook/profiles.json` |
+| Token cache | `~/.cc_outlook/tokens/{email}_msal.json` |

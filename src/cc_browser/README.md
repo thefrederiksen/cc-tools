@@ -166,9 +166,9 @@ Profiles provide isolated browser sessions with persistent logins. Each profile 
 
 | Profile | Browser | Daemon Port | CDP Port | Purpose |
 |---------|---------|-------------|----------|---------|
-| edge-work | Edge | 9280 | 9222 | example work accounts |
-| chrome-work | Chrome | 9281 | 9223 | Work accounts with LastPass |
-| chrome-personal | Chrome | 9282 | 9224 | Personal accounts with LastPass |
+| edge-work | Edge | 9280 | 9222 | Work accounts |
+| chrome-work | Chrome | 9281 | 9223 | Work accounts |
+| chrome-personal | Chrome | 9282 | 9224 | Personal accounts |
 
 ### Profile JSON Structure
 
@@ -178,9 +178,9 @@ Profiles provide isolated browser sessions with persistent logins. Each profile 
   "browser": "edge",
   "cdpPort": 9222,
   "daemonPort": 9280,
-  "purpose": "example work accounts",
-  "favorites": ["https://www.examplestudio.com"],
-  "accounts": ["example"]
+  "purpose": "Work accounts",
+  "favorites": ["https://example.com"],
+  "accounts": []
 }
 ```
 

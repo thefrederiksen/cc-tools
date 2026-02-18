@@ -1,8 +1,12 @@
 """CLI for cc_gmail - Gmail from the command line with multi-account support."""
 
 import logging
+import sys
 from pathlib import Path
 from typing import Optional, List
+
+# Suppress Google's file_cache warning before importing googleapiclient
+logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
 
 import typer
 from googleapiclient.errors import HttpError
@@ -60,6 +64,14 @@ app = typer.Typer(
 )
 accounts_app = typer.Typer(help="Manage Gmail accounts")
 app.add_typer(accounts_app, name="accounts")
+
+# Configure console to handle Unicode safely on Windows
+# This prevents UnicodeEncodeError when emails contain emoji
+if sys.platform == "win32":
+    # Use UTF-8 encoding for Windows console output
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 console = Console()
 

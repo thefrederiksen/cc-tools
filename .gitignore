@@ -78,3 +78,18 @@ nul.*
 
 # Generated docs
 docs/site/
+
+# .NET build artifacts
+obj/
+bin/
+*.pdb
+
+# Test output images (may contain sensitive screenshots)
+**/test_output/*.png
+**/output/*.png
+
+# CSV data files
+*.csv
+
+# Transcripts and temp files
+*_transcript.txt

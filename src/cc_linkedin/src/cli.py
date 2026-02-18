@@ -42,7 +42,8 @@ def get_client() -> BrowserClient:
 def output(data: dict, message: str = "") -> None:
     """Output data in configured format."""
     if config.format == "json":
-        console.print_json(json.dumps(data))
+        # Use print() directly to avoid Rich console encoding issues on Windows
+        print(json.dumps(data, ensure_ascii=False))
     elif config.format == "markdown":
         # Convert to markdown representation
         console.print(f"```\n{json.dumps(data, indent=2)}\n```")
@@ -612,7 +613,7 @@ def profile(
         client.navigate(LinkedInURLs.profile(username))
         time.sleep(3)
 
-        # Extract profile info
+        # Extract profile info including related profiles for spider effect
         js_profile = """
         (() => {
             const name = document.querySelector('h1.text-heading-xlarge')?.textContent?.trim() || '';
@@ -637,12 +638,40 @@ def profile(
             // Get about section
             const about = document.querySelector('section.pv-about-section div.pv-shared-text-with-see-more span')?.textContent?.trim() || '';
 
+            // Spider effect: Extract "People also viewed" and similar profiles
+            const relatedProfiles = [];
+            const seen = new Set();
+
+            // Find all profile links on the page (sidebar, recommendations, etc.)
+            const profileLinks = document.querySelectorAll('a[href*="/in/"]');
+            for (const link of profileLinks) {
+                const href = link.getAttribute('href') || '';
+                const match = href.match(/\\/in\\/([a-zA-Z0-9\\-]+)/);
+                if (match && match[1]) {
+                    const username = match[1];
+                    if (!seen.has(username) && username.length > 2) {
+                        seen.add(username);
+                        // Try to get name from link text or nearby elements
+                        const linkName = link.textContent?.trim() || '';
+                        if (linkName && linkName.length > 2 && linkName.length < 100) {
+                            relatedProfiles.push({
+                                username: username,
+                                name: linkName.split('\\n')[0].trim()
+                            });
+                        } else {
+                            relatedProfiles.push({ username: username });
+                        }
+                    }
+                }
+            }
+
             return JSON.stringify({
                 name,
                 headline,
                 location,
                 connections,
-                about: about.substring(0, 300)
+                about: about.substring(0, 300),
+                related_profiles: relatedProfiles.slice(0, 20)
             });
         })()
         """
@@ -651,7 +680,7 @@ def profile(
         profile_data = json.loads(result.get("result", "{}"))
 
         if config.format == "json":
-            console.print_json(json.dumps(profile_data))
+            print(json.dumps(profile_data, ensure_ascii=False))
         else:
             console.print(f"\n[bold]{profile_data.get('name', 'Unknown')}[/bold]")
             if profile_data.get("headline"):

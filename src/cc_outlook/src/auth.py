@@ -45,7 +45,6 @@ TROUBLESHOOTING:
 - Device code expires in ~15 minutes - run auth again if expired
 - Token files can be deleted to force re-authentication
 
-Author: Claude Code / 
 Date: February 2026
 """
 
@@ -66,6 +65,8 @@ PROFILES_FILE = CONFIG_DIR / 'profiles.json'
 TOKENS_DIR = CONFIG_DIR / 'tokens'
 
 # Delegated permissions - no admin consent required
+# Note: MSAL automatically handles offline_access for refresh token support
+# We don't need to (and cannot) explicitly request it - it's a reserved scope
 SCOPES = [
     'https://graph.microsoft.com/Mail.ReadWrite',
     'https://graph.microsoft.com/Mail.Send',
@@ -101,11 +102,12 @@ class MSALTokenBackend(BaseTokenBackend):
       {'token_type', 'access_token', 'refresh_token', 'expires_in', 'scope'}
     """
 
-    def __init__(self, client_id: str, token_path: Path, scopes: list = None):
+    def __init__(self, client_id: str, token_path: Path):
         super().__init__()
         self.client_id = client_id
         self.token_path = token_path
-        self.scopes = scopes or SCOPES
+        # Always use SCOPES for token operations (includes offline_access for refresh tokens)
+        self.scopes = SCOPES
         self._msal_app = None
         self._token_cache = msal.SerializableTokenCache()
         self._load_cache()
@@ -138,17 +140,32 @@ class MSALTokenBackend(BaseTokenBackend):
 
     def load_token(self) -> dict:
         """Load token, refreshing silently if needed."""
+        import time
         accounts = self.msal_app.get_accounts()
+        print(f"DEBUG load_token: Found {len(accounts)} accounts in MSAL cache")
         if accounts:
+            print(f"DEBUG load_token: Calling acquire_token_silent with scopes: {self.scopes[:2]}...")
             result = self.msal_app.acquire_token_silent(self.scopes, account=accounts[0])
+            if result:
+                print(f"DEBUG load_token: acquire_token_silent returned keys: {list(result.keys())}")
+                if "error" in result:
+                    print(f"DEBUG load_token: MSAL error: {result.get('error')} - {result.get('error_description')}")
+            else:
+                print("DEBUG load_token: acquire_token_silent returned None")
             if result and "access_token" in result:
                 self._save_cache()
+                # Set expires_at far in the future (1 year) so O365 never tries to refresh on its own.
+                # MSAL handles actual token refresh internally via acquire_token_silent().
+                # Every time O365 calls load_token(), we call acquire_token_silent() which
+                # returns a fresh token if needed.
+                expires_at = time.time() + (365 * 24 * 60 * 60)  # 1 year from now
                 # Convert to O365 expected format
                 return {
                     'token_type': result.get('token_type', 'Bearer'),
                     'access_token': result['access_token'],
-                    'refresh_token': result.get('refresh_token', ''),
-                    'expires_in': result.get('expires_in', 3600),
+                    'refresh_token': 'managed_by_msal',  # Placeholder - MSAL handles refresh internally
+                    'expires_in': 365 * 24 * 60 * 60,  # 1 year
+                    'expires_at': expires_at,
                     'scope': ' '.join(self.scopes),
                 }
         return None
@@ -169,26 +186,71 @@ class MSALTokenBackend(BaseTokenBackend):
         token = self.load_token()
         return token is not None and 'access_token' in token
 
+    def token_is_expired(self, username=None) -> bool:
+        """
+        Override: Always return False because MSAL handles token refresh internally.
+
+        When O365 calls this, we return False to prevent O365 from trying to refresh
+        the token using its own mechanism. Instead, every call to load_token() or
+        get_access_token() goes through MSAL which handles refresh automatically.
+
+        Args:
+            username: Ignored - kept for API compatibility with BaseTokenBackend
+        """
+        return False
+
+    def should_refresh_token(self, con=None) -> bool:
+        """
+        Override: Always return False because MSAL handles token refresh internally.
+
+        This prevents O365 from attempting to refresh using its refresh mechanism.
+
+        Args:
+            con: Ignored - kept for API compatibility
+        """
+        return False
+
+    def get_access_token(self, username=None) -> Optional[dict]:
+        """
+        Override: Get access token directly from MSAL.
+
+        This bypasses O365's internal token caching and always gets a fresh
+        (or refreshed) token from MSAL.
+
+        O365's Connection class expects this to return a dict with a 'secret' key
+        containing the actual access token string.
+
+        Args:
+            username: Ignored - kept for API compatibility with BaseTokenBackend
+
+        Returns:
+            Dict with 'secret' key containing access token, or None
+        """
+        token = self.load_token()
+        if token and 'access_token' in token:
+            return {'secret': token['access_token']}
+        return None
+
 
 # =============================================================================
 # Device Code Flow Authentication
 # =============================================================================
 
 def authenticate_device_code_with_cache(client_id: str, token_path: Path,
-                                         scopes: list = None, force: bool = False) -> dict:
+                                         force: bool = False) -> dict:
     """
     Authenticate using Device Code Flow with token caching.
 
     Args:
         client_id: Azure App Client ID
         token_path: Path to store token cache
-        scopes: List of permission scopes
         force: Force re-authentication even if cached token exists
 
     Returns:
         Dict with token info
     """
-    scopes = scopes or SCOPES
+    # Always use SCOPES which includes offline_access for refresh token support
+    scopes = SCOPES
 
     # Set up token cache
     token_cache = msal.SerializableTokenCache()
@@ -226,15 +288,18 @@ def authenticate_device_code_with_cache(client_id: str, token_path: Path,
         raise Exception(f"Failed to create device flow: {error_desc}")
 
     # Print the message for user (contains URL and code)
-    print()
-    print("=" * 60)
-    print("DEVICE CODE AUTHENTICATION")
-    print("=" * 60)
-    print()
-    print(flow["message"])
-    print()
-    print("=" * 60)
-    print()
+    # Use flush=True to ensure output appears immediately (important for PyInstaller)
+    import sys
+    print("", flush=True)
+    print("=" * 60, flush=True)
+    print("DEVICE CODE AUTHENTICATION", flush=True)
+    print("=" * 60, flush=True)
+    print("", flush=True)
+    print(flow["message"], flush=True)
+    print("", flush=True)
+    print("=" * 60, flush=True)
+    print("", flush=True)
+    sys.stdout.flush()
 
     # Block until user completes authentication (or timeout)
     result = app.acquire_token_by_device_flow(flow)
@@ -505,8 +570,7 @@ def _create_account(profile: dict, email: str = None) -> Account:
     if token_path:
         token_backend = MSALTokenBackend(
             client_id=client_id,
-            token_path=token_path,
-            scopes=SCOPES
+            token_path=token_path
         )
 
     # Initialize account with public client flow (no client secret)
@@ -558,7 +622,6 @@ def authenticate(account_name: str, force: bool = False) -> Account:
     result = authenticate_device_code_with_cache(
         client_id=client_id,
         token_path=token_path,
-        scopes=SCOPES,
         force=force
     )
 

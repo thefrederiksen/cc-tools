@@ -14,10 +14,12 @@ Command-line tools for document conversion, media processing, email, and AI work
 | cc_click | Windows UI automation (click, type, inspect) | Windows, .NET |
 | cc_crawl4ai | AI-ready web crawler to clean markdown | Playwright browsers |
 | cc_gmail | Gmail CLI: read, send, search emails | Google OAuth |
+| cc_hardware | System hardware info (RAM, CPU, GPU, disk) | None (NVIDIA for GPU) |
 | cc_image | Image generation/analysis/OCR | OpenAI API key |
 | cc_linkedin | LinkedIn automation | Playwright browsers |
 | cc_markdown | Markdown to PDF/Word/HTML | Chrome/Chromium |
 | cc_outlook | Outlook CLI: email + calendar | Azure OAuth |
+| cc_photos | Photo organization: duplicates, screenshots, AI | OpenAI API key |
 | cc_reddit | Reddit automation | Playwright browsers |
 | cc_transcribe | Video/audio transcription with screenshots | FFmpeg, OpenAI API key |
 | cc_trisight | Windows screen detection and automation | Windows, .NET |
@@ -129,6 +131,51 @@ cc_gmail -a work list
 ```
 
 **Search syntax:** `from:`, `to:`, `subject:`, `is:unread`, `has:attachment`, `after:YYYY/MM/DD`, `before:YYYY/MM/DD`
+
+---
+
+## cc_hardware
+
+Query system hardware information: RAM, CPU, GPU, disk, OS, network, battery.
+
+```bash
+# Show all hardware info
+cc_hardware
+
+# Individual components
+cc_hardware ram
+cc_hardware cpu
+cc_hardware gpu
+cc_hardware disk
+cc_hardware os
+cc_hardware network
+cc_hardware battery
+
+# JSON output (for scripting)
+cc_hardware --json
+cc_hardware cpu --json
+
+# Version
+cc_hardware --version
+```
+
+**Commands:**
+- `cc_hardware` - Show all hardware summary
+- `cc_hardware ram` - RAM total/used/available
+- `cc_hardware cpu` - CPU model, cores, usage
+- `cc_hardware gpu` - NVIDIA GPU memory/load/temp
+- `cc_hardware disk` - Per-drive storage info
+- `cc_hardware os` - OS name, version, architecture
+- `cc_hardware network` - Network interfaces and IPs
+- `cc_hardware battery` - Battery charge and status
+
+**Options:**
+- `--json, -j` - Output as JSON
+- `--version, -v` - Show version
+
+**Notes:**
+- GPU info requires NVIDIA GPU with drivers installed
+- Battery info only available on laptops
 
 ---
 
@@ -263,6 +310,63 @@ cc_browser close
 
 ---
 
+## cc_photos
+
+Photo organization tool: scan directories, detect duplicates and screenshots, AI descriptions.
+
+```bash
+# Add a source directory
+cc_photos source add "D:\Photos" --category private --label "Family" --priority 1
+
+# List sources
+cc_photos source list
+
+# Remove a source
+cc_photos source remove "Family"
+
+# Scan all sources
+cc_photos scan
+
+# Scan specific source
+cc_photos scan --source "Family"
+
+# Find duplicates
+cc_photos dupes
+
+# Auto-remove duplicates (keeps highest priority)
+cc_photos dupes --cleanup
+
+# Interactive duplicate review
+cc_photos dupes --review
+
+# List by category
+cc_photos list --category private
+
+# List screenshots
+cc_photos list --screenshots
+
+# AI analysis (generate descriptions)
+cc_photos analyze
+cc_photos analyze --limit 50
+cc_photos analyze --provider openai
+
+# Search descriptions
+cc_photos search "beach vacation"
+
+# Statistics
+cc_photos stats
+```
+
+**Categories:** private, work, other
+
+**Priority:** Lower number = higher priority (keeps that copy when removing duplicates)
+
+**Config:** `~/.cc_tools/config.json`
+
+**Database:** `~/.cc_tools/photos.db` (configurable)
+
+---
+
 ## cc_click
 
 Windows UI automation for clicking, typing, and inspecting elements.
@@ -362,9 +466,11 @@ set OPENAI_API_KEY=your-key-here
 | cc_click | Windows, .NET runtime |
 | cc_crawl4ai | `playwright install chromium` |
 | cc_gmail | OAuth credentials from Google Cloud Console |
+| cc_hardware | None (NVIDIA drivers for GPU info) |
 | cc_image | OPENAI_API_KEY |
 | cc_markdown | Chrome/Chromium (auto-detected) |
 | cc_outlook | Azure App Registration with OAuth |
+| cc_photos | OPENAI_API_KEY (for AI analysis) |
 | cc_transcribe | FFmpeg in PATH, OPENAI_API_KEY |
 | cc_trisight | Windows, .NET runtime |
 | cc_video | FFmpeg in PATH |

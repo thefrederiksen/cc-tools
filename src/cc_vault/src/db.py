@@ -9,12 +9,15 @@ Domains:
 - IDEAS: Unstructured thoughts to capture
 """
 
+import logging
 import sqlite3
 import json
 import hashlib
 from pathlib import Path
 from datetime import datetime, date
 from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 try:
     from .config import (
@@ -78,8 +81,8 @@ def _migrate_schema(conn: sqlite3.Connection):
         if col_name not in existing_columns:
             try:
                 cursor.execute(f"ALTER TABLE contacts ADD COLUMN {col_name} {col_def}")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            except sqlite3.OperationalError as e:
+                logger.debug("Column %s already exists or migration skipped: %s", col_name, e)
 
     conn.commit()
 
@@ -396,6 +399,97 @@ def init_db(silent: bool = False):
     """)
 
     # ==========================================
+    # PHOTOS DOMAIN
+    # ==========================================
+
+    # Photo sources - directories to scan for photos
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS photo_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT UNIQUE NOT NULL,
+            label TEXT UNIQUE NOT NULL,
+            category TEXT NOT NULL CHECK(category IN ('private', 'work', 'other')),
+            priority INTEGER DEFAULT 10,
+            enabled INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Photos table - the main photo registry
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES photo_sources(id) ON DELETE CASCADE,
+            file_path TEXT UNIQUE NOT NULL,
+            file_name TEXT NOT NULL,
+            file_size INTEGER,
+            sha256_hash TEXT,
+            is_screenshot INTEGER DEFAULT 0,
+            screenshot_confidence REAL,
+            category TEXT NOT NULL CHECK(category IN ('private', 'work', 'other')),
+
+            -- Links to other entities
+            contact_id INTEGER REFERENCES contacts(id),
+            goal_id INTEGER REFERENCES goals(id),
+
+            -- Vector reference for AI descriptions
+            vector_id TEXT,
+
+            -- Meta
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_modified_at TIMESTAMP
+        )
+    """)
+
+    # Photo metadata - EXIF and image properties
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS photo_metadata (
+            photo_id INTEGER PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
+            width INTEGER,
+            height INTEGER,
+            date_taken TIMESTAMP,
+            camera_make TEXT,
+            camera_model TEXT,
+            gps_lat REAL,
+            gps_lon REAL,
+            orientation INTEGER,
+            raw_exif TEXT
+        )
+    """)
+
+    # Photo analysis - AI-generated descriptions
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS photo_analysis (
+            photo_id INTEGER PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
+            description TEXT,
+            keywords TEXT,
+            analyzed_at TIMESTAMP,
+            provider TEXT,
+            model TEXT
+        )
+    """)
+
+    # Photo exclusions - paths to skip during scanning
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS photo_exclusions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT UNIQUE NOT NULL,
+            reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Photo scan state - tracks initialized drives
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS photo_scan_state (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drive TEXT UNIQUE NOT NULL,
+            last_scan TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # ==========================================
     # CHUNKS - Document chunks for hybrid search
     # ==========================================
 
@@ -530,6 +624,15 @@ def init_db(silent: bool = False):
     # Health entries indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_health_category ON health_entries(category)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_health_date ON health_entries(entry_date)")
+
+    # Photos indexes
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_source ON photos(source_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_hash ON photos(sha256_hash)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_category ON photos(category)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_screenshot ON photos(is_screenshot)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_contact ON photos(contact_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_goal ON photos(goal_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photo_sources_label ON photo_sources(label)")
 
     # Chunks indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id)")
@@ -2318,6 +2421,742 @@ def get_health_summary(days: int = 7) -> dict:
 
 
 # ===========================================
+# PHOTOS DOMAIN
+# ===========================================
+
+def add_photo_source(
+    path: str,
+    label: str,
+    category: str,
+    priority: int = 10
+) -> int:
+    """Add a photo source directory. Returns the source ID."""
+    if category not in ('private', 'work', 'other'):
+        raise ValueError(f"Invalid category '{category}'. Must be: private, work, other")
+
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO photo_sources (path, label, category, priority)
+        VALUES (?, ?, ?, ?)
+    """, (path, label, category, priority))
+
+    source_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return source_id
+
+
+def get_photo_source(label: str) -> Optional[dict]:
+    """Get a photo source by label."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM photo_sources WHERE label = ?", (label,))
+    row = cursor.fetchone()
+    conn.close()
+
+    return dict(row) if row else None
+
+
+def get_photo_source_by_id(source_id: int) -> Optional[dict]:
+    """Get a photo source by ID."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM photo_sources WHERE id = ?", (source_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    return dict(row) if row else None
+
+
+def list_photo_sources(enabled_only: bool = True) -> List[dict]:
+    """List all photo sources."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    sql = "SELECT * FROM photo_sources"
+    if enabled_only:
+        sql += " WHERE enabled = 1"
+    sql += " ORDER BY priority ASC, label"
+
+    cursor.execute(sql)
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return results
+
+
+def remove_photo_source(label: str) -> bool:
+    """Remove a photo source by label. Returns True if removed."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM photo_sources WHERE label = ?", (label,))
+    removed = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+
+    return removed
+
+
+def update_photo_source(
+    label: str,
+    path: Optional[str] = None,
+    category: Optional[str] = None,
+    priority: Optional[int] = None,
+    enabled: Optional[bool] = None
+) -> bool:
+    """Update a photo source."""
+    source = get_photo_source(label)
+    if not source:
+        return False
+
+    if category and category not in ('private', 'work', 'other'):
+        raise ValueError(f"Invalid category '{category}'. Must be: private, work, other")
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    updates = []
+    params = []
+
+    if path is not None:
+        updates.append("path = ?")
+        params.append(path)
+    if category is not None:
+        updates.append("category = ?")
+        params.append(category)
+    if priority is not None:
+        updates.append("priority = ?")
+        params.append(priority)
+    if enabled is not None:
+        updates.append("enabled = ?")
+        params.append(1 if enabled else 0)
+
+    if updates:
+        sql = f"UPDATE photo_sources SET {', '.join(updates)} WHERE label = ?"
+        params.append(label)
+        cursor.execute(sql, params)
+
+    conn.commit()
+    conn.close()
+
+    return True
+
+
+def add_photo(
+    source_id: int,
+    file_path: str,
+    file_name: str,
+    category: str,
+    file_size: Optional[int] = None,
+    sha256_hash: Optional[str] = None,
+    is_screenshot: bool = False,
+    screenshot_confidence: Optional[float] = None,
+    file_modified_at: Optional[str] = None,
+    contact_id: Optional[int] = None,
+    goal_id: Optional[int] = None
+) -> int:
+    """Add a photo to the registry. Returns the photo ID."""
+    if category not in ('private', 'work', 'other'):
+        raise ValueError(f"Invalid category '{category}'. Must be: private, work, other")
+
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO photos (
+            source_id, file_path, file_name, category, file_size,
+            sha256_hash, is_screenshot, screenshot_confidence,
+            file_modified_at, contact_id, goal_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        source_id, file_path, file_name, category, file_size,
+        sha256_hash, 1 if is_screenshot else 0, screenshot_confidence,
+        file_modified_at, contact_id, goal_id
+    ))
+
+    photo_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return photo_id
+
+
+def get_photo(photo_id: int) -> Optional[dict]:
+    """Get a photo by ID."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT p.*, s.label as source_label, s.path as source_path
+        FROM photos p
+        JOIN photo_sources s ON p.source_id = s.id
+        WHERE p.id = ?
+    """, (photo_id,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    return dict(row) if row else None
+
+
+def get_photo_by_path(file_path: str) -> Optional[dict]:
+    """Get a photo by file path."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT p.*, s.label as source_label, s.path as source_path
+        FROM photos p
+        JOIN photo_sources s ON p.source_id = s.id
+        WHERE p.file_path = ?
+    """, (file_path,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    return dict(row) if row else None
+
+
+def update_photo(
+    photo_id: int,
+    sha256_hash: Optional[str] = None,
+    is_screenshot: Optional[bool] = None,
+    screenshot_confidence: Optional[float] = None,
+    file_modified_at: Optional[str] = None,
+    contact_id: Optional[int] = None,
+    goal_id: Optional[int] = None,
+    vector_id: Optional[str] = None
+) -> bool:
+    """Update a photo."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    updates = []
+    params = []
+
+    if sha256_hash is not None:
+        updates.append("sha256_hash = ?")
+        params.append(sha256_hash)
+    if is_screenshot is not None:
+        updates.append("is_screenshot = ?")
+        params.append(1 if is_screenshot else 0)
+    if screenshot_confidence is not None:
+        updates.append("screenshot_confidence = ?")
+        params.append(screenshot_confidence)
+    if file_modified_at is not None:
+        updates.append("file_modified_at = ?")
+        params.append(file_modified_at)
+    if contact_id is not None:
+        updates.append("contact_id = ?")
+        params.append(contact_id if contact_id != 0 else None)
+    if goal_id is not None:
+        updates.append("goal_id = ?")
+        params.append(goal_id if goal_id != 0 else None)
+    if vector_id is not None:
+        updates.append("vector_id = ?")
+        params.append(vector_id)
+
+    if updates:
+        sql = f"UPDATE photos SET {', '.join(updates)} WHERE id = ?"
+        params.append(photo_id)
+        cursor.execute(sql, params)
+
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+
+    return updated
+
+
+def delete_photo(photo_id: int) -> bool:
+    """Delete a photo and its metadata/analysis."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM photos WHERE id = ?", (photo_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+
+    return deleted
+
+
+def list_photos(
+    source_id: Optional[int] = None,
+    category: Optional[str] = None,
+    screenshots_only: bool = False,
+    contact_id: Optional[int] = None,
+    goal_id: Optional[int] = None,
+    limit: int = 100
+) -> List[dict]:
+    """List photos with optional filtering."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    sql = """
+        SELECT p.*, s.label as source_label, s.path as source_path
+        FROM photos p
+        JOIN photo_sources s ON p.source_id = s.id
+        WHERE 1=1
+    """
+    params = []
+
+    if source_id:
+        sql += " AND p.source_id = ?"
+        params.append(source_id)
+
+    if category:
+        sql += " AND p.category = ?"
+        params.append(category)
+
+    if screenshots_only:
+        sql += " AND p.is_screenshot = 1"
+
+    if contact_id:
+        sql += " AND p.contact_id = ?"
+        params.append(contact_id)
+
+    if goal_id:
+        sql += " AND p.goal_id = ?"
+        params.append(goal_id)
+
+    sql += " ORDER BY p.file_name LIMIT ?"
+    params.append(limit)
+
+    cursor.execute(sql, params)
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return results
+
+
+def get_photos_by_source(source_id: int) -> List[str]:
+    """Get all file paths for photos from a source."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT file_path FROM photos WHERE source_id = ?", (source_id,))
+    paths = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    return paths
+
+
+def delete_photos_not_in_paths(source_id: int, valid_paths: List[str]) -> int:
+    """Delete photos from a source that are not in the valid paths list."""
+    if not valid_paths:
+        # Delete all photos for this source
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM photos WHERE source_id = ?", (source_id,))
+        count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return count
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Get photos to delete
+    placeholders = ",".join("?" * len(valid_paths))
+    cursor.execute(f"""
+        DELETE FROM photos
+        WHERE source_id = ? AND file_path NOT IN ({placeholders})
+    """, [source_id] + valid_paths)
+
+    count = cursor.rowcount
+    conn.commit()
+    conn.close()
+
+    return count
+
+
+# Photo metadata functions
+
+def add_photo_metadata(
+    photo_id: int,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    date_taken: Optional[str] = None,
+    camera_make: Optional[str] = None,
+    camera_model: Optional[str] = None,
+    gps_lat: Optional[float] = None,
+    gps_lon: Optional[float] = None,
+    orientation: Optional[int] = None,
+    raw_exif: Optional[str] = None
+) -> None:
+    """Add or replace metadata for a photo."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO photo_metadata (
+            photo_id, width, height, date_taken, camera_make,
+            camera_model, gps_lat, gps_lon, orientation, raw_exif
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        photo_id, width, height, date_taken, camera_make,
+        camera_model, gps_lat, gps_lon, orientation, raw_exif
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def get_photo_metadata(photo_id: int) -> Optional[dict]:
+    """Get metadata for a photo."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM photo_metadata WHERE photo_id = ?", (photo_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    return dict(row) if row else None
+
+
+# Photo analysis functions
+
+def add_photo_analysis(
+    photo_id: int,
+    description: Optional[str] = None,
+    keywords: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None
+) -> None:
+    """Add or replace AI analysis for a photo."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO photo_analysis (
+            photo_id, description, keywords, analyzed_at, provider, model
+        ) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+    """, (photo_id, description, keywords, provider, model))
+
+    conn.commit()
+    conn.close()
+
+
+def get_photo_analysis(photo_id: int) -> Optional[dict]:
+    """Get AI analysis for a photo."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM photo_analysis WHERE photo_id = ?", (photo_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    return dict(row) if row else None
+
+
+def get_unanalyzed_photos(limit: Optional[int] = None) -> List[dict]:
+    """Get photos that haven't been analyzed yet."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    sql = """
+        SELECT p.*, s.label as source_label, s.path as source_path
+        FROM photos p
+        JOIN photo_sources s ON p.source_id = s.id
+        LEFT JOIN photo_analysis a ON p.id = a.photo_id
+        WHERE a.photo_id IS NULL
+        ORDER BY p.created_at DESC
+    """
+    if limit:
+        sql += f" LIMIT {limit}"
+
+    cursor.execute(sql)
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return results
+
+
+def search_photos(query: str) -> List[dict]:
+    """Search photos by description."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    search_term = f"%{query}%"
+    cursor.execute("""
+        SELECT p.*, s.label as source_label, a.description
+        FROM photos p
+        JOIN photo_sources s ON p.source_id = s.id
+        JOIN photo_analysis a ON p.id = a.photo_id
+        WHERE LOWER(a.description) LIKE LOWER(?)
+        ORDER BY p.file_name
+    """, (search_term,))
+
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return results
+
+
+# Duplicate detection
+
+def get_photo_duplicate_groups() -> List[List[dict]]:
+    """Get groups of photos with the same SHA-256 hash."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Find hashes with multiple photos
+    hashes = cursor.execute("""
+        SELECT sha256_hash, COUNT(*) as count
+        FROM photos
+        WHERE sha256_hash IS NOT NULL
+        GROUP BY sha256_hash
+        HAVING count > 1
+        ORDER BY count DESC
+    """).fetchall()
+
+    groups = []
+    for row in hashes:
+        hash_val = row[0]
+        photos = cursor.execute("""
+            SELECT p.*, s.label as source_label, s.priority as source_priority
+            FROM photos p
+            JOIN photo_sources s ON p.source_id = s.id
+            WHERE p.sha256_hash = ?
+            ORDER BY s.priority, p.file_path
+        """, (hash_val,)).fetchall()
+        groups.append([dict(p) for p in photos])
+
+    conn.close()
+    return groups
+
+
+def get_photo_stats() -> dict:
+    """Get photo statistics."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    stats = {
+        'total': 0,
+        'total_size_bytes': 0,
+        'by_category': {},
+        'by_source': {},
+        'screenshots': 0,
+        'analyzed': 0,
+        'duplicate_groups': 0,
+        'duplicate_files': 0
+    }
+
+    cursor.execute("SELECT COUNT(*), SUM(file_size) FROM photos")
+    row = cursor.fetchone()
+    stats['total'] = row[0] or 0
+    stats['total_size_bytes'] = row[1] or 0
+
+    cursor.execute("SELECT category, COUNT(*), SUM(file_size) FROM photos GROUP BY category")
+    for row in cursor.fetchall():
+        stats['by_category'][row[0]] = {'count': row[1], 'size': row[2] or 0}
+
+    cursor.execute("""
+        SELECT s.label, COUNT(*), SUM(p.file_size)
+        FROM photos p
+        JOIN photo_sources s ON p.source_id = s.id
+        GROUP BY s.label
+    """)
+    for row in cursor.fetchall():
+        stats['by_source'][row[0]] = {'count': row[1], 'size': row[2] or 0}
+
+    cursor.execute("SELECT COUNT(*) FROM photos WHERE is_screenshot = 1")
+    stats['screenshots'] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM photo_analysis")
+    stats['analyzed'] = cursor.fetchone()[0]
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM (
+            SELECT sha256_hash FROM photos
+            WHERE sha256_hash IS NOT NULL
+            GROUP BY sha256_hash HAVING COUNT(*) > 1
+        )
+    """)
+    stats['duplicate_groups'] = cursor.fetchone()[0]
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM photos
+        WHERE sha256_hash IN (
+            SELECT sha256_hash FROM photos
+            WHERE sha256_hash IS NOT NULL
+            GROUP BY sha256_hash HAVING COUNT(*) > 1
+        )
+    """)
+    stats['duplicate_files'] = cursor.fetchone()[0]
+
+    conn.close()
+    return stats
+
+
+# Photo Exclusions
+
+def add_photo_exclusion(path: str, reason: Optional[str] = None) -> int:
+    """Add a path to the exclusion list."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO photo_exclusions (path, reason, created_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+    """, (path, reason))
+
+    exclusion_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return exclusion_id
+
+
+def remove_photo_exclusion(path: str) -> bool:
+    """Remove a path from the exclusion list."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM photo_exclusions WHERE path = ?", (path,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def list_photo_exclusions() -> list:
+    """List all exclusion paths."""
+    init_db(silent=True)
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM photo_exclusions ORDER BY path")
+    exclusions = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return exclusions
+
+
+def is_path_excluded(path: str) -> bool:
+    """Check if a path is excluded (or under an excluded path)."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Normalize path
+    path = path.replace('/', '\\').rstrip('\\').lower()
+
+    cursor.execute("SELECT path FROM photo_exclusions")
+    for row in cursor.fetchall():
+        excluded = row[0].replace('/', '\\').rstrip('\\').lower()
+        if path == excluded or path.startswith(excluded + '\\'):
+            conn.close()
+            return True
+
+    conn.close()
+    return False
+
+
+def get_default_exclusions() -> list:
+    """Get list of default paths to exclude."""
+    import os
+    exclusions = []
+
+    # Windows system directories
+    if os.name == 'nt':
+        exclusions.extend([
+            'C:\\Windows',
+            'C:\\Program Files',
+            'C:\\Program Files (x86)',
+            'C:\\ProgramData',
+            'C:\\$Recycle.Bin',
+            os.path.expandvars('%APPDATA%'),
+            os.path.expandvars('%LOCALAPPDATA%'),
+        ])
+
+    # Common development/cache directories (will be skipped anywhere)
+    # These are handled in the scanner, not as exclusions
+
+    return exclusions
+
+
+def add_default_exclusions() -> int:
+    """Add all default exclusions to the database."""
+    count = 0
+    for path in get_default_exclusions():
+        try:
+            add_photo_exclusion(path, "Default system exclusion")
+            count += 1
+        except sqlite3.IntegrityError:
+            pass  # Already exists
+    return count
+
+
+# Photo Scan State
+
+def set_drive_scanned(drive: str) -> None:
+    """Mark a drive as scanned."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO photo_scan_state (drive, last_scan, created_at)
+        VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    """, (drive.upper(),))
+
+    conn.commit()
+    conn.close()
+
+
+def get_scanned_drives() -> list:
+    """Get list of drives that have been scanned."""
+    init_db(silent=True)
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM photo_scan_state ORDER BY drive")
+    drives = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return drives
+
+
+def is_drive_scanned(drive: str) -> bool:
+    """Check if a drive has been scanned."""
+    init_db(silent=True)
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT 1 FROM photo_scan_state WHERE drive = ?", (drive.upper(),))
+    result = cursor.fetchone() is not None
+    conn.close()
+    return result
+
+
+# ===========================================
 # ENTITY LINKS DOMAIN (Vault 2.0)
 # ===========================================
 
@@ -2485,6 +3324,7 @@ def get_stats() -> dict:
         # Vault 2.0 tables
         'documents': {'total': 0, 'by_type': {}},
         'health_entries': {'total': 0, 'by_category': {}},
+        'photos': {'total': 0, 'screenshots': 0, 'analyzed': 0, 'by_category': {}},
         'entity_links': 0,
         'searches': 0
     }
@@ -2600,6 +3440,23 @@ def get_stats() -> dict:
     try:
         cursor.execute("SELECT COUNT(*) FROM search_log")
         stats['searches'] = cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        pass
+
+    # Photos stats
+    try:
+        cursor.execute("SELECT COUNT(*) FROM photos")
+        stats['photos']['total'] = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM photos WHERE is_screenshot = 1")
+        stats['photos']['screenshots'] = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM photo_analysis")
+        stats['photos']['analyzed'] = cursor.fetchone()[0]
+
+        cursor.execute("SELECT category, COUNT(*) FROM photos GROUP BY category")
+        for row in cursor.fetchall():
+            stats['photos']['by_category'][row[0]] = row[1]
     except sqlite3.OperationalError:
         pass
 

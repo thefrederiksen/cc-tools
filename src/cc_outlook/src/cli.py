@@ -286,7 +286,7 @@ def auth(
         logger.error(f"Network error: {e}")
         console.print(f"[red]Error:[/red] Network error: {e}")
         raise typer.Exit(1)
-    except Exception as e:
+    except RuntimeError as e:
         logger.error(f"Authentication error: {e}")
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -330,7 +330,7 @@ def list_emails(
                 indicators.append("[red]![/red]")
             indicator_str = ' '.join(indicators)
 
-            console.print(f"{marker} [dim]{msg['id'][:50]}...[/dim] {indicator_str}", style=style)
+            console.print(f"{marker} {msg['id']} {indicator_str}", style=style)
             console.print(f"    From: {truncate(msg.get('from_name', '') or msg.get('from', ''), 50)}", style=style)
             console.print(f"    Subject: {truncate(msg.get('subject', ''), 60)}", style=style)
             console.print(f"    Date: {msg.get('date', '')[:25] if msg.get('date') else ''}", style=style)
@@ -532,7 +532,7 @@ def search(
         console.print(f"\n[cyan]Search: {query} ({acct})[/cyan]\n")
 
         for msg in messages:
-            console.print(f"[ ] [dim]{msg['id'][:50]}...[/dim]")
+            console.print(f"[ ] {msg['id']}")
             console.print(f"    From: {truncate(msg.get('from_name', '') or msg.get('from', ''), 50)}")
             console.print(f"    Subject: {truncate(msg.get('subject', ''), 60)}")
             console.print(f"    Date: {msg.get('date', '')[:25] if msg.get('date') else ''}")
@@ -805,6 +805,33 @@ def archive(
         raise typer.Exit(1)
     except (ConnectionError, OSError) as e:
         logger.error(f"Network error archiving message: {e}")
+        console.print(f"[red]Error:[/red] Network error: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def unarchive(
+    message_id: str = typer.Argument(..., help="Message ID to move back to inbox"),
+    yes: bool = typer.Option(False, "-y", "--yes", help="Skip confirmation"),
+):
+    """Move an email from Archive back to Inbox."""
+    client = get_client()
+
+    if not yes:
+        confirm = typer.confirm(f"Move message {message_id[:16]}... back to inbox?")
+        if not confirm:
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+    try:
+        client.move_message(message_id, "Inbox")
+        console.print("[green]Message moved to inbox.[/green]")
+    except ValueError as e:
+        logger.error(f"Unarchive error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except (ConnectionError, OSError) as e:
+        logger.error(f"Network error moving message: {e}")
         console.print(f"[red]Error:[/red] Network error: {e}")
         raise typer.Exit(1)
 

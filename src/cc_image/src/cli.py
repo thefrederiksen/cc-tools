@@ -3,7 +3,9 @@
 from pathlib import Path
 from typing import Optional
 
+import requests
 import typer
+from PIL import UnidentifiedImageError
 from rich.console import Console
 from rich.table import Table
 
@@ -81,8 +83,17 @@ def resize_cmd(
         info = image_info(result)
         console.print(f"[green]Resized:[/green] {result}")
         console.print(f"[cyan]New size:[/cyan] {info['width']} x {info['height']}")
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Invalid argument:[/red] {e}")
+        raise typer.Exit(1)
+    except UnidentifiedImageError:
+        console.print(f"[red]Error:[/red] Cannot open image file - unsupported or corrupted format")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -96,8 +107,14 @@ def convert_cmd(
     try:
         result = convert(image, output, quality=quality)
         console.print(f"[green]Converted:[/green] {result}")
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except UnidentifiedImageError:
+        console.print(f"[red]Error:[/red] Cannot open image file - unsupported or corrupted format")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -110,8 +127,14 @@ def describe_cmd(
         console.print("[blue]Analyzing image...[/blue]")
         result = describe(image)
         console.print(f"\n{result}")
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]API error:[/red] {e}")
+        raise typer.Exit(1)
+    except requests.RequestException as e:
+        console.print(f"[red]Network error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -124,8 +147,14 @@ def ocr_cmd(
         console.print("[blue]Extracting text...[/blue]")
         result = extract_text(image)
         console.print(f"\n{result}")
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]API error:[/red] {e}")
+        raise typer.Exit(1)
+    except requests.RequestException as e:
+        console.print(f"[red]Network error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -141,8 +170,14 @@ def generate_cmd(
         console.print(f"[blue]Generating:[/blue] {prompt[:50]}...")
         result = generate_to_file(prompt, output, size=size, quality=quality)
         console.print(f"[green]Generated:[/green] {result}")
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+    except RuntimeError as e:
+        console.print(f"[red]API error:[/red] {e}")
+        raise typer.Exit(1)
+    except requests.RequestException as e:
+        console.print(f"[red]Network error:[/red] {e}")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 

@@ -75,7 +75,10 @@ def main() -> None:
             "before_size": list(img_before.size),
             "after_size": list(img_after.size),
         })
-    except Exception as e:
+    except FileNotFoundError as e:
+        log_skill_result(SKILL_NAME, False, str(e))
+        error(SKILL_NAME, f"Screenshot not found: {e}")
+    except OSError as e:
         log_skill_result(SKILL_NAME, False, str(e))
         error(SKILL_NAME, f"Diff failed: {e}")
 

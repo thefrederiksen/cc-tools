@@ -174,7 +174,10 @@ CHROMA_COLLECTIONS = {
 DOCUMENT_TYPES = ["transcript", "note", "journal", "research"]
 
 # Entity types for linking
-ENTITY_TYPES = ["contact", "task", "goal", "idea", "document", "fact", "health"]
+ENTITY_TYPES = ["contact", "task", "goal", "idea", "document", "fact", "health", "photo"]
+
+# Photo categories
+PHOTO_CATEGORIES = ["private", "work", "other"]
 
 
 def ensure_directories() -> bool:

@@ -115,8 +115,13 @@ def main() -> None:
         else:
             log_skill_result(SKILL_NAME, False, result.get("output", "No processes killed"))
             error(SKILL_NAME, result.get("output", "No matching processes found"))
-    except Exception as e:
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
+    except subprocess.TimeoutExpired:
+        log_skill_result(SKILL_NAME, False, "Command timed out")
+        error(SKILL_NAME, "Kill command timed out")
+    except FileNotFoundError:
+        log_skill_result(SKILL_NAME, False, "Required executable not found")
+        error(SKILL_NAME, "taskkill or PowerShell not found")
+    except subprocess.SubprocessError as e:
         log_skill_result(SKILL_NAME, False, str(e))
         error(SKILL_NAME, f"Failed to kill: {e}")
 

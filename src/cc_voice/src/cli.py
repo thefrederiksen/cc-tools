@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import openai
 import typer
 from rich.console import Console
 
@@ -77,8 +78,17 @@ def main(
         size_kb = result.stat().st_size / 1024
         console.print(f"[green]Created:[/green] {result} ({size_kb:.1f} KB)")
 
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+    except ValueError as e:
+        console.print(f"[red]Invalid input:[/red] {e}")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        raise typer.Exit(1)
+    except openai.APIError as e:
+        console.print(f"[red]OpenAI API error:[/red] {e}")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 

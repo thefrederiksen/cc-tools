@@ -151,8 +151,17 @@ def main(
 
         console.print(f"[green]Done:[/green] {output}")
 
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Invalid input:[/red] {e}")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]Conversion error:[/red] {e}")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 

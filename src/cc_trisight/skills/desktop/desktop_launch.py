@@ -38,8 +38,10 @@ def main() -> None:
             "args": args.app_args,
             "elapsed_ms": elapsed_ms,
         })
-    except Exception as e:
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
+    except FileNotFoundError:
+        log_skill_result(SKILL_NAME, False, f"Application not found: {args.app}")
+        error(SKILL_NAME, f"Application not found: {args.app}")
+    except OSError as e:
         log_skill_result(SKILL_NAME, False, str(e))
         error(SKILL_NAME, f"Failed to launch {args.app}: {e}")
 

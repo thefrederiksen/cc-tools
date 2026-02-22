@@ -166,12 +166,12 @@ class CCToolsInstaller:
                     5000,
                     ctypes.byref(result)
                 )
-            except Exception:
+            except OSError:
                 pass  # Non-critical if broadcast fails
 
             return True
 
-        except Exception as e:
+        except OSError as e:
             print(f"      WARNING: Could not modify PATH: {e}")
             print(f"      Please manually add {install_str} to your PATH")
             return False

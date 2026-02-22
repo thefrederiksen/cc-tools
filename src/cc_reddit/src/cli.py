@@ -3,12 +3,13 @@
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich import print as rprint
 from typing import Optional
 import json
 import re
+import time
+import random
 
-from .browser_client import BrowserClient, BrowserError
+from .browser_client import BrowserClient, BrowserError, ProfileError
 from .selectors import RedditURLs, NewReddit
 
 app = typer.Typer(
@@ -21,7 +22,7 @@ console = Console()
 
 # Global options stored in context
 class Config:
-    port: int = 9280
+    profile: str = "chrome-work"
     format: str = "text"
     delay: float = 1.0
     verbose: bool = False
@@ -30,9 +31,33 @@ class Config:
 config = Config()
 
 
+def human_delay(base_seconds: float) -> None:
+    """Sleep with random jitter (+-30%) to simulate human timing."""
+    jitter = base_seconds * 0.3
+    actual = base_seconds + random.uniform(-jitter, jitter)
+    time.sleep(max(0.1, actual))
+
+
+def type_slowly(client: "BrowserClient", ref: str, text: str, delay_ms: int = 75) -> None:
+    """Type text character by character with human-like delays.
+
+    Args:
+        client: Browser client instance
+        ref: Element reference to type into
+        text: Text to type
+        delay_ms: Milliseconds between keystrokes (default 75ms)
+    """
+    for char in text:
+        client.type(ref, char)
+        # Add slight random variation to typing speed (+-30%)
+        jitter = delay_ms * 0.3
+        actual_delay = delay_ms + random.uniform(-jitter, jitter)
+        time.sleep(max(0.02, actual_delay / 1000))
+
+
 def get_client() -> BrowserClient:
-    """Get browser client instance."""
-    return BrowserClient(port=config.port)
+    """Get browser client instance for the configured profile."""
+    return BrowserClient(profile=config.profile)
 
 
 def output(data: dict, message: str = ""):
@@ -66,17 +91,17 @@ def warn(msg: str):
 
 @app.callback()
 def main(
-    port: int = typer.Option(9280, help="cc_browser daemon port"),
+    profile: str = typer.Option("chrome-work", "--profile", "-p", help="Browser profile name or alias"),
     format: str = typer.Option("text", help="Output format: text, json, markdown"),
     delay: float = typer.Option(1.0, help="Delay between actions (seconds)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Reddit CLI via browser automation.
 
-    Requires cc_browser daemon to be running.
-    Start it with: cc-browser daemon
+    Requires cc_browser daemon to be running with the specified profile.
+    Start it with: cc-browser daemon --profile chrome-work
     """
-    config.port = port
+    config.profile = profile
     config.format = format
     config.delay = delay
     config.verbose = verbose
@@ -126,8 +151,7 @@ def whoami():
         url = info.get("url", "")
         if "reddit.com" not in url:
             client.navigate(RedditURLs.home())
-            import time
-            time.sleep(2)  # Wait for page load
+            human_delay(2)  # Wait for page load
 
         # Get snapshot to find user element
         snapshot = client.snapshot()
@@ -209,7 +233,7 @@ def whoami():
             else:
                 console.print(f"Logged in as: [green]u/{username}[/green]")
 
-        except Exception as e:
+        except (BrowserError, json.JSONDecodeError, KeyError) as e:
             if config.verbose:
                 error(f"JavaScript evaluation failed: {e}")
             # Fallback check
@@ -232,14 +256,13 @@ def me(
     """View your Reddit profile activity (posts and comments)."""
     try:
         client = get_client()
-        import time
 
         # First get the username
         info = client.info()
         url = info.get("url", "")
         if "reddit.com" not in url:
             client.navigate(RedditURLs.home())
-            time.sleep(2)
+            human_delay(2)
 
         # Get username via JS
         js_username = """
@@ -277,7 +300,7 @@ def me(
         # Get posts
         if posts:
             client.navigate(f"https://www.reddit.com/user/{username}/submitted")
-            time.sleep(2)
+            human_delay(2)
 
             js_posts = """
             (() => {
@@ -331,7 +354,7 @@ def me(
         # Get comments
         if comments:
             client.navigate(f"https://www.reddit.com/user/{username}/comments")
-            time.sleep(2)
+            human_delay(2)
 
             # Comments page has a different structure - extract from snapshot
             snapshot = client.snapshot()
@@ -390,11 +413,10 @@ def saved(
     """View your saved posts and comments."""
     try:
         client = get_client()
-        import time
 
         # Navigate to saved page
         client.navigate("https://www.reddit.com/user/me/saved")
-        time.sleep(2)
+        human_delay(2)
 
         # Extract saved items using JavaScript
         js_saved = """
@@ -460,11 +482,10 @@ def karma():
     """Show your karma breakdown."""
     try:
         client = get_client()
-        import time
 
         # Navigate to profile
         client.navigate("https://www.reddit.com/user/me")
-        time.sleep(2)
+        human_delay(2)
 
         # Extract karma using JavaScript - target specific Reddit elements
         js_karma = """
@@ -623,7 +644,6 @@ def feed(
     """View subreddit feed."""
     try:
         client = get_client()
-        import time
 
         # Navigate to subreddit
         if subreddit.lower() == "home":
@@ -634,7 +654,7 @@ def feed(
             display_name = f"r/{subreddit}"
 
         client.navigate(url)
-        time.sleep(2)  # Wait for page load
+        human_delay(2)  # Wait for page load
 
         # Extract posts using JavaScript
         js_posts = """
@@ -719,9 +739,7 @@ def post(
             url = RedditURLs.post_by_id(url_or_id)
 
         client.navigate(url)
-
-        import time
-        time.sleep(3)  # Give more time for Reddit to load
+        human_delay(3)  # Give more time for Reddit to load
 
         # Get page info
         info = client.info()
@@ -856,7 +874,7 @@ def post(
                 # No body and no link - might be image/video post
                 console.print("\n[dim](Image/video post - view in browser)[/dim]")
 
-        except Exception as e:
+        except (BrowserError, json.JSONDecodeError, KeyError, TypeError) as e:
             if config.verbose:
                 error(f"Content extraction failed: {e}")
             # Fallback: just show the page title
@@ -885,8 +903,7 @@ def comment(
         info = client.info()
         if post_url not in info.get("url", ""):
             client.navigate(post_url)
-            import time
-            time.sleep(2)
+            human_delay(2)
 
         # Get snapshot to find comment input
         snapshot = client.snapshot()
@@ -913,11 +930,10 @@ def comment(
             error("Could not find comment input. Try using 'cc_reddit snapshot' to see page elements.")
             raise typer.Exit(1)
 
-        # Type comment
+        # Type comment (human-like speed)
         client.click(comment_ref)
-        import time
-        time.sleep(0.5)
-        client.type(comment_ref, text)
+        human_delay(0.5)
+        type_slowly(client, comment_ref, text)
 
         # Find and click submit button
         snapshot = client.snapshot()
@@ -948,11 +964,10 @@ def reply(
     """Reply to a comment."""
     try:
         client = get_client()
-        import time
 
         # Navigate to comment
         client.navigate(comment_url)
-        time.sleep(2)
+        human_delay(2)
 
         # Get snapshot to find reply button
         snapshot = client.snapshot()
@@ -977,7 +992,7 @@ def reply(
 
         # Click reply to open input
         client.click(reply_ref)
-        time.sleep(1)
+        human_delay(1)
 
         # Get new snapshot to find text input
         snapshot = client.snapshot()
@@ -997,11 +1012,11 @@ def reply(
             error("Could not find reply text input")
             raise typer.Exit(1)
 
-        # Type reply
+        # Type reply (human-like speed)
         client.click(textbox_ref)
-        time.sleep(0.3)
-        client.type(textbox_ref, text)
-        time.sleep(0.5)
+        human_delay(0.3)
+        type_slowly(client, textbox_ref, text)
+        human_delay(0.5)
 
         # Find and click submit/comment button
         snapshot = client.snapshot()
@@ -1040,8 +1055,7 @@ def upvote(
         # Navigate if URL provided
         if url_or_id.startswith("http"):
             client.navigate(url_or_id)
-            import time
-            time.sleep(2)
+            human_delay(2)
 
         # Get snapshot
         snapshot = client.snapshot()
@@ -1083,8 +1097,7 @@ def downvote(
         # Navigate if URL provided
         if url_or_id.startswith("http"):
             client.navigate(url_or_id)
-            import time
-            time.sleep(2)
+            human_delay(2)
 
         # Get snapshot
         snapshot = client.snapshot()
@@ -1127,9 +1140,7 @@ def join(
         # Navigate to subreddit
         url = RedditURLs.subreddit(subreddit)
         client.navigate(url)
-
-        import time
-        time.sleep(2)
+        human_delay(2)
 
         # Get snapshot
         snapshot = client.snapshot()
@@ -1167,9 +1178,7 @@ def leave(
         # Navigate to subreddit
         url = RedditURLs.subreddit(subreddit)
         client.navigate(url)
-
-        import time
-        time.sleep(2)
+        human_delay(2)
 
         # Get snapshot
         snapshot = client.snapshot()

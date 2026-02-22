@@ -92,7 +92,7 @@ def resolve_profile(profile_name: str) -> dict:
                         config = json.load(f)
                     aliases = config.get("aliases", [])
                     available.append(f"{profile_dir.name} (aliases: {', '.join(aliases)})")
-                except:
+                except (json.JSONDecodeError, IOError):
                     available.append(profile_dir.name)
 
     available_str = "\n  - ".join(available) if available else "(none found)"

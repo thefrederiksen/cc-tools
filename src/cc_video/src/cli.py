@@ -77,8 +77,14 @@ def audio_cmd(
         result = extract_audio(video, output, format=format, bitrate=bitrate)
         size_mb = result.stat().st_size / 1024 / 1024
         console.print(f"[green]Saved:[/green] {result} ({size_mb:.1f} MB)")
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]FFmpeg error:[/red] {e}")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -100,8 +106,14 @@ def screenshots_cmd(
             max_screenshots=max_count,
         )
         console.print(f"[green]Extracted:[/green] {len(results)} screenshots to {output_dir}")
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Video error:[/red] {e}")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -116,8 +128,14 @@ def frame_cmd(
         console.print(f"[blue]Extracting frame at {time}s...[/blue]")
         result = extract_frame_at(video, time, output)
         console.print(f"[green]Saved:[/green] {result}")
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Video error:[/red] {e}")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 

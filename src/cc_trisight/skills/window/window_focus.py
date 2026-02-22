@@ -45,8 +45,13 @@ def main() -> None:
             "window": args.window,
             "elapsed_ms": elapsed_ms,
         })
-    except Exception as e:
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
+    except subprocess.TimeoutExpired:
+        log_skill_result(SKILL_NAME, False, "Command timed out")
+        error(SKILL_NAME, "PowerShell command timed out")
+    except FileNotFoundError:
+        log_skill_result(SKILL_NAME, False, "PowerShell not found")
+        error(SKILL_NAME, "PowerShell not found. Install Windows PowerShell.")
+    except subprocess.SubprocessError as e:
         log_skill_result(SKILL_NAME, False, str(e))
         error(SKILL_NAME, f"Failed to focus window: {e}")
 

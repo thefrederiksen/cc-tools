@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import openai
 import typer
 from rich.console import Console
 
@@ -107,8 +108,20 @@ def main(
         if result.screenshots:
             console.print(f"[cyan]Screenshots:[/cyan] {len(result.screenshots)} in {result.screenshots_dir}")
 
-    except Exception as e:
+    except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Invalid input:[/red] {e}")
+        raise typer.Exit(1)
+    except openai.APIError as e:
+        console.print(f"[red]OpenAI API error:[/red] {e}")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]File error:[/red] {e}")
         raise typer.Exit(1)
 
 

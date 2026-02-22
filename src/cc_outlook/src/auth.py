@@ -142,16 +142,16 @@ class MSALTokenBackend(BaseTokenBackend):
         """Load token, refreshing silently if needed."""
         import time
         accounts = self.msal_app.get_accounts()
-        print(f"DEBUG load_token: Found {len(accounts)} accounts in MSAL cache")
+        logger.debug(f"load_token: Found {len(accounts)} accounts in MSAL cache")
         if accounts:
-            print(f"DEBUG load_token: Calling acquire_token_silent with scopes: {self.scopes[:2]}...")
+            logger.debug(f"load_token: Calling acquire_token_silent with scopes: {self.scopes[:2]}...")
             result = self.msal_app.acquire_token_silent(self.scopes, account=accounts[0])
             if result:
-                print(f"DEBUG load_token: acquire_token_silent returned keys: {list(result.keys())}")
+                logger.debug(f"load_token: acquire_token_silent returned keys: {list(result.keys())}")
                 if "error" in result:
-                    print(f"DEBUG load_token: MSAL error: {result.get('error')} - {result.get('error_description')}")
+                    logger.debug(f"load_token: MSAL error: {result.get('error')} - {result.get('error_description')}")
             else:
-                print("DEBUG load_token: acquire_token_silent returned None")
+                logger.debug("load_token: acquire_token_silent returned None")
             if result and "access_token" in result:
                 self._save_cache()
                 # Set expires_at far in the future (1 year) so O365 never tries to refresh on its own.
@@ -585,6 +585,22 @@ def _create_account(profile: dict, email: str = None) -> Account:
     )
 
 
+def _log_token_debug_info(result: dict, token_path: Path, account: Account) -> None:
+    """Log debug information about token acquisition."""
+    logger.debug("Token acquired: %s", 'access_token' in result)
+    logger.debug("Token file exists: %s", token_path.exists())
+    if token_path.exists():
+        logger.debug("Token file size: %s bytes", token_path.stat().st_size)
+
+    if account.con and account.con.token_backend:
+        token = account.con.token_backend.load_token()
+        logger.debug("Token backend returned: %s", token is not None)
+        if token:
+            logger.debug("Token has access_token: %s", 'access_token' in token)
+
+    logger.debug("account.is_authenticated = %s", account.is_authenticated)
+
+
 def authenticate(account_name: str, force: bool = False) -> Account:
     """
     Authenticate with Outlook/Microsoft Graph using Device Code Flow.
@@ -598,7 +614,7 @@ def authenticate(account_name: str, force: bool = False) -> Account:
 
     Raises:
         ValueError: If account not found
-        Exception: If authentication fails
+        RuntimeError: If authentication fails
     """
     profile = get_profile(account_name)
     if not profile:
@@ -607,50 +623,32 @@ def authenticate(account_name: str, force: bool = False) -> Account:
     client_id = profile['client_id']
     token_path = get_msal_token_path(account_name)
 
-    # Delete existing token if forcing
     if force and token_path.exists():
         token_path.unlink()
 
-    # Create account with MSAL token backend
     account = _create_account(profile, email=account_name)
 
-    # Check if already authenticated (has valid cached token)
     if not force and account.is_authenticated:
         return account
 
-    # Perform device code flow authentication
     result = authenticate_device_code_with_cache(
         client_id=client_id,
         token_path=token_path,
         force=force
     )
 
-    # Debug: verify token was acquired
-    print(f"DEBUG: Token acquired: {'access_token' in result}")
-    print(f"DEBUG: Token file exists: {token_path.exists()}")
-    if token_path.exists():
-        print(f"DEBUG: Token file size: {token_path.stat().st_size} bytes")
-
-    # Recreate account to pick up new token
     account = _create_account(profile, email=account_name)
-
-    # Debug: check what MSALTokenBackend returns
-    if account.con and account.con.token_backend:
-        token = account.con.token_backend.load_token()
-        print(f"DEBUG: Token backend returned: {token is not None}")
-        if token:
-            print(f"DEBUG: Token has access_token: {'access_token' in token}")
-
-    print(f"DEBUG: account.is_authenticated = {account.is_authenticated}")
+    _log_token_debug_info(result, token_path, account)
 
     if account.is_authenticated:
         return account
-    else:
-        # Even if O365 says not authenticated, if we have a token, try anyway
-        if result and 'access_token' in result:
-            print("DEBUG: Forcing return since we have a token from MSAL")
-            return account
-        raise Exception("Authentication failed. Please try again.")
+
+    # O365 may report not authenticated even with valid MSAL token
+    if result and 'access_token' in result:
+        logger.debug("Returning account with valid MSAL token")
+        return account
+
+    raise RuntimeError("Authentication failed. Please try again.")
 
 
 def revoke_token(account_name: str) -> bool:

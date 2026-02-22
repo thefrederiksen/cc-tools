@@ -1,8 +1,11 @@
 """Core YouTube functionality using yt-dlp and youtube-transcript-api."""
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional, List
+
+logger = logging.getLogger(__name__)
 
 import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -10,6 +13,7 @@ from youtube_transcript_api._errors import (
     TranscriptsDisabled,
     NoTranscriptFound,
     VideoUnavailable,
+    TranslationLanguageNotAvailable,
 )
 
 
@@ -279,7 +283,7 @@ def _find_best_transcript(
         if transcript and transcript.language_code != language:
             try:
                 transcript = transcript.translate(language)
-            except (NoTranscriptFound, Exception):
+            except (NoTranscriptFound, TranslationLanguageNotAvailable):
                 # Translation failed - keep original language transcript
                 pass
 
@@ -349,7 +353,8 @@ def download_transcript(
     except (NoSubtitlesError, VideoNotFoundError, InvalidURLError):
         raise
     except Exception as e:
-        raise YouTubeError(f"Failed to download transcript: {e}")
+        logger.debug("Unexpected error downloading transcript: %s", e)
+        raise YouTubeError(f"Failed to download transcript: {e}") from e
 
 
 @dataclass
@@ -410,7 +415,8 @@ def list_languages(url: str) -> List[LanguageInfo]:
     except (NoSubtitlesError, VideoNotFoundError, InvalidURLError):
         raise
     except Exception as e:
-        raise YouTubeError(f"Failed to list languages: {e}")
+        logger.debug("Unexpected error listing languages: %s", e)
+        raise YouTubeError(f"Failed to list languages: {e}") from e
 
 
 def download_transcript_formatted(
@@ -478,4 +484,5 @@ def download_transcript_formatted(
     except (NoSubtitlesError, VideoNotFoundError, InvalidURLError, YouTubeError):
         raise
     except Exception as e:
-        raise YouTubeError(f"Failed to download transcript: {e}")
+        logger.debug("Unexpected error downloading formatted transcript: %s", e)
+        raise YouTubeError(f"Failed to download transcript: {e}") from e

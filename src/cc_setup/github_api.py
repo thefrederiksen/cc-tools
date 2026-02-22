@@ -100,7 +100,10 @@ def download_file(url: str, dest_path: str, show_progress: bool = True) -> bool:
 
         return True
 
-    except Exception as e:
+    except urllib.error.URLError as e:
+        print(f"  Download failed: {e}")
+        return False
+    except OSError as e:
         print(f"  Download failed: {e}")
         return False
 

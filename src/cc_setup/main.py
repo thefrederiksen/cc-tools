@@ -34,7 +34,11 @@ def main():
         print()
         print("Installation cancelled by user.")
         return 1
-    except Exception as e:
+    except (OSError, IOError) as e:
+        print()
+        print(f"ERROR: {e}")
+        return 1
+    except RuntimeError as e:
         print()
         print(f"ERROR: {e}")
         return 1
